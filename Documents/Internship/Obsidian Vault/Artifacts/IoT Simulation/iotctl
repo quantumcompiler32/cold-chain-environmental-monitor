@@ -1,0 +1,549 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+PROJECT_ROOT="${IOT_PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+VENV="$PROJECT_ROOT/venv"
+ENV_PATH="$PROJECT_ROOT/.env"
+RUNTIME_DIR="$PROJECT_ROOT/.runtime"
+LOG_DIR="$PROJECT_ROOT/logs"
+EXPORT_DIR="$PROJECT_ROOT/exports"
+MQTT_PID_FILE="$RUNTIME_DIR/mosquitto.pid"
+MQTT_CONFIG="$PROJECT_ROOT/config/mosquitto-local.conf"
+MQTT_LOG="$LOG_DIR/mosquitto.log"
+
+mkdir -p "$RUNTIME_DIR" "$LOG_DIR" "$EXPORT_DIR" "$EXPORT_DIR/charts"
+
+if [[ -f "$ENV_PATH" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_PATH"
+  set +a
+fi
+
+DB_NAME="${IOT_DB_NAME:-iot_platform}"
+DB_USER="${IOT_DB_USER:-${USER:-postgres}}"
+DB_PASSWORD="${IOT_DB_PASSWORD:-}"
+DB_HOST="${IOT_DB_HOST:-localhost}"
+DB_PORT="${IOT_DB_PORT:-5432}"
+MQTT_HOST="${IOT_MQTT_HOST:-localhost}"
+MQTT_PORT="${IOT_MQTT_PORT:-1883}"
+
+info() { printf '[INFO] %s\n' "$*"; }
+ok() { printf '[OK] %s\n' "$*"; }
+warn() { printf '[WARN] %s\n' "$*"; }
+fail() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+brew_cmd() {
+  if have brew; then command -v brew; return 0; fi
+  if [[ -x /opt/homebrew/bin/brew ]]; then echo /opt/homebrew/bin/brew; return 0; fi
+  if [[ -x /usr/local/bin/brew ]]; then echo /usr/local/bin/brew; return 0; fi
+  return 1
+}
+
+BREW="$(brew_cmd 2>/dev/null || true)"
+
+installed_pg_formula() {
+  [[ -n "$BREW" ]] || return 1
+  local formula
+  for formula in postgresql@14 postgresql@18 postgresql@17 postgresql@16 postgresql@15 postgresql; do
+    if "$BREW" list --versions "$formula" >/dev/null 2>&1; then
+      echo "$formula"
+      return 0
+    fi
+  done
+  return 1
+}
+
+pg_executable() {
+  local name="$1" formula prefix
+  if have "$name"; then command -v "$name"; return 0; fi
+  formula="$(installed_pg_formula 2>/dev/null || true)"
+  if [[ -n "$formula" ]]; then
+    prefix="$("$BREW" --prefix "$formula")"
+    if [[ -x "$prefix/bin/$name" ]]; then
+      echo "$prefix/bin/$name"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+port_open() {
+  local host="$1" port="$2"
+  if have nc; then nc -z "$host" "$port" >/dev/null 2>&1; return $?; fi
+  (echo >/dev/tcp/"$host"/"$port") >/dev/null 2>&1
+}
+
+wait_for_port() {
+  local host="$1" port="$2" label="$3" attempt
+  for attempt in {1..30}; do
+    if port_open "$host" "$port"; then ok "$label is listening on $host:$port"; return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
+ensure_homebrew() {
+  [[ "$(uname -s)" == "Darwin" ]] || fail "The automatic installer supports macOS. See the Windows notes in Obsidian."
+  if [[ -z "$BREW" ]]; then
+    fail "Homebrew is missing. Install it from brew.sh, reopen Terminal, and rerun: iot setup"
+  fi
+}
+
+ensure_formula() {
+  local formula="$1"
+  if "$BREW" list --versions "$formula" >/dev/null 2>&1; then ok "$formula is installed"; return 0; fi
+  info "Installing $formula..."
+  "$BREW" install "$formula"
+}
+
+ensure_postgres() {
+  local formula
+  formula="$(installed_pg_formula 2>/dev/null || true)"
+  if [[ -n "$formula" ]]; then ok "$formula is installed"; echo "$formula"; return 0; fi
+
+  info "Installing PostgreSQL..."
+  if "$BREW" install postgresql@14; then
+    echo postgresql@14
+  else
+    warn "postgresql@14 was unavailable; installing the current PostgreSQL formula."
+    "$BREW" install postgresql
+    echo postgresql
+  fi
+}
+
+ensure_python() {
+  if have python3; then ok "python3 is installed"; return 0; fi
+  info "Installing Python..."
+  "$BREW" install python
+  hash -r
+  have python3 || fail "python3 is still unavailable after installation."
+}
+
+create_env_file() {
+  if [[ -f "$ENV_PATH" ]]; then return 0; fi
+  cat > "$ENV_PATH" <<EOF
+IOT_MQTT_HOST=localhost
+IOT_MQTT_PORT=1883
+IOT_MQTT_TOPIC=devices/+/telemetry
+IOT_DB_NAME=iot_platform
+IOT_DB_USER=${USER:-postgres}
+IOT_DB_PASSWORD=
+IOT_DB_HOST=localhost
+IOT_DB_PORT=5432
+IOT_SIM_INTERVAL=5
+EOF
+  ok "Created .env using PostgreSQL user ${USER:-postgres}"
+}
+
+ensure_venv() {
+  if [[ ! -x "$VENV/bin/python" ]]; then
+    info "Creating Python virtual environment..."
+    python3 -m venv "$VENV"
+  fi
+  "$VENV/bin/python" -m pip install --upgrade pip
+  "$VENV/bin/python" -m pip install -r "$PROJECT_ROOT/requirements.txt"
+  ok "Python packages are installed"
+}
+
+python_check() {
+  [[ -x "$VENV/bin/python" ]] || fail "Virtual environment missing. Run: iot setup"
+  "$VENV/bin/python" - <<'PY'
+import paho.mqtt.client
+import psycopg2
+import dotenv
+import requests
+import pandas
+import numpy
+import matplotlib
+print("All required Python imports work.")
+PY
+}
+
+start_mqtt() {
+  if port_open "$MQTT_HOST" "$MQTT_PORT"; then ok "MQTT is already listening on $MQTT_HOST:$MQTT_PORT"; return 0; fi
+  local mosquitto_bin
+  mosquitto_bin="$(command -v mosquitto 2>/dev/null || true)"
+  if [[ -z "$mosquitto_bin" && -n "$BREW" ]]; then
+    local prefix
+    prefix="$("$BREW" --prefix mosquitto 2>/dev/null || true)"
+    [[ -x "$prefix/sbin/mosquitto" ]] && mosquitto_bin="$prefix/sbin/mosquitto"
+    [[ -x "$prefix/bin/mosquitto" ]] && mosquitto_bin="$prefix/bin/mosquitto"
+  fi
+  [[ -n "$mosquitto_bin" ]] || fail "Mosquitto is missing. Run: iot setup"
+
+  : > "$MQTT_LOG"
+  nohup "$mosquitto_bin" -c "$MQTT_CONFIG" > "$MQTT_LOG" 2>&1 &
+  echo $! > "$MQTT_PID_FILE"
+  if ! wait_for_port "$MQTT_HOST" "$MQTT_PORT" "MQTT"; then
+    tail -n 30 "$MQTT_LOG" || true
+    fail "MQTT failed to start. Run: iot logs"
+  fi
+}
+
+stop_mqtt() {
+  if [[ -f "$MQTT_PID_FILE" ]]; then
+    local pid
+    pid="$(cat "$MQTT_PID_FILE" 2>/dev/null || true)"
+    if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+      kill "$pid" >/dev/null 2>&1 || true
+      for _ in {1..10}; do kill -0 "$pid" >/dev/null 2>&1 || break; sleep 0.2; done
+      kill -9 "$pid" >/dev/null 2>&1 || true
+      ok "Stopped project MQTT broker"
+    fi
+    rm -f "$MQTT_PID_FILE"
+  else
+    info "No project-started MQTT broker PID was found; an external broker was not stopped."
+  fi
+}
+
+start_postgres() {
+  [[ -n "$BREW" ]] || fail "Homebrew is required to start PostgreSQL."
+  local formula
+  formula="$(installed_pg_formula 2>/dev/null || true)"
+  [[ -n "$formula" ]] || fail "PostgreSQL is missing. Run: iot setup"
+  "$BREW" services start "$formula" >/dev/null
+  wait_for_port "$DB_HOST" "$DB_PORT" "PostgreSQL" || fail "PostgreSQL failed to start. Run: iot postgres-status"
+}
+
+stop_postgres() {
+  [[ -n "$BREW" ]] || return 0
+  local formula
+  formula="$(installed_pg_formula 2>/dev/null || true)"
+  if [[ -n "$formula" ]]; then "$BREW" services stop "$formula" >/dev/null || true; ok "Stopped $formula"; fi
+}
+
+psql_run() {
+  local psql
+  psql="$(pg_executable psql 2>/dev/null || true)"
+  [[ -n "$psql" ]] || fail "psql is missing. Run: iot setup"
+  if [[ -n "$DB_PASSWORD" ]]; then
+    PGPASSWORD="$DB_PASSWORD" "$psql" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$@"
+  else
+    "$psql" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$@"
+  fi
+}
+
+db_init() {
+  start_postgres
+  psql_run -d postgres -f "$PROJECT_ROOT/sql/init_database.sql"
+  ok "Database and schema are ready"
+}
+
+kill_project_python() {
+  pkill -f "$PROJECT_ROOT/src/subscriber_arduinoevents.py" >/dev/null 2>&1 || true
+  pkill -f "$PROJECT_ROOT/src/arduino_events_simulate.py" >/dev/null 2>&1 || true
+  ok "Stopped project subscriber and simulator processes"
+}
+
+export_csv() {
+  mkdir -p "$EXPORT_DIR"
+  local output="$EXPORT_DIR/telemetry_$(date '+%Y%m%d_%H%M%S').csv"
+  psql_run -d "$DB_NAME" -c "\\copy (SELECT * FROM telemetry_logs ORDER BY timestamp, id) TO '$output' WITH CSV HEADER"
+  ok "Exported: $output"
+  echo "$output"
+}
+
+latest_export() {
+  ls -t "$EXPORT_DIR"/telemetry_*.csv 2>/dev/null | head -n 1 || true
+}
+
+launch_pipeline() {
+  start_mqtt
+  start_postgres
+  db_init
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    warn "Automatic Terminal window launch is macOS-only."
+    echo "Run in separate terminals: iot subscriber | iot simulator | iot watch"
+    return 0
+  fi
+  open -a Terminal "$PROJECT_ROOT/scripts/run_subscriber.command"
+  sleep 1
+  open -a Terminal "$PROJECT_ROOT/scripts/run_simulator.command"
+  sleep 1
+  open -a Terminal "$PROJECT_ROOT/scripts/watch_data.command"
+  ok "Opened subscriber, simulator, and live data windows"
+}
+
+status_report() {
+  echo "Project: $PROJECT_ROOT"
+  if port_open "$MQTT_HOST" "$MQTT_PORT"; then ok "MQTT port $MQTT_PORT is open"; else warn "MQTT port $MQTT_PORT is closed"; fi
+  if port_open "$DB_HOST" "$DB_PORT"; then ok "PostgreSQL port $DB_PORT is open"; else warn "PostgreSQL port $DB_PORT is closed"; fi
+  if [[ -n "$BREW" ]]; then
+    echo
+    "$BREW" services list | grep -E 'postgresql|mosquitto' || true
+  fi
+}
+
+doctor() {
+  local failures=0
+  echo "IoT environment diagnosis"
+  echo "Project: $PROJECT_ROOT"
+  [[ -n "$BREW" ]] && ok "Homebrew found: $BREW" || { warn "Homebrew missing"; failures=$((failures+1)); }
+  have python3 && ok "python3 found: $(command -v python3)" || { warn "python3 missing"; failures=$((failures+1)); }
+  [[ -x "$VENV/bin/python" ]] && ok "virtual environment exists" || { warn "virtual environment missing"; failures=$((failures+1)); }
+  if [[ -x "$VENV/bin/python" ]]; then python_check >/dev/null 2>&1 && ok "Python imports work" || { warn "Python imports failed"; failures=$((failures+1)); }; fi
+  port_open "$MQTT_HOST" "$MQTT_PORT" && ok "MQTT is reachable" || { warn "MQTT is not reachable"; failures=$((failures+1)); }
+  port_open "$DB_HOST" "$DB_PORT" && ok "PostgreSQL is reachable" || { warn "PostgreSQL is not reachable"; failures=$((failures+1)); }
+  if port_open "$DB_HOST" "$DB_PORT"; then
+    psql_run -d "$DB_NAME" -Atqc "SELECT COUNT(*) FROM telemetry_logs;" >/dev/null 2>&1 && ok "Database and telemetry table work" || { warn "Database or table check failed"; failures=$((failures+1)); }
+  fi
+  echo
+  if [[ $failures -eq 0 ]]; then ok "Everything checked successfully"; return 0; fi
+  warn "$failures check(s) need attention. Run: iot fix"
+  return 1
+}
+
+setup_all() {
+  ensure_homebrew
+  ensure_formula mosquitto
+  ensure_postgres >/dev/null
+  ensure_python
+  create_env_file
+  ensure_venv
+  start_mqtt
+  start_postgres
+  db_init
+  doctor || true
+  echo
+  ok "Setup is complete"
+  echo "Next: iot go"
+}
+
+fix_all() {
+  ensure_homebrew
+  ensure_formula mosquitto
+  ensure_postgres >/dev/null
+  ensure_python
+  create_env_file
+  ensure_venv
+  start_mqtt
+  start_postgres
+  db_init
+  doctor
+}
+
+menu() {
+  cat <<'EOF'
+
+IoT menu
+  1) Set up everything
+  2) Start services
+  3) Launch full pipeline
+  4) Show recent data
+  5) Watch live data
+  6) Export CSV
+  7) Export and open Colab
+  8) Run diagnosis
+  9) Repair environment
+ 10) Stop everything
+  0) Exit
+EOF
+  read -r -p "Choose a number: " choice
+  case "$choice" in
+    1) setup_all ;;
+    2) start_mqtt; start_postgres ;;
+    3) launch_pipeline ;;
+    4) psql_run -d "$DB_NAME" -c "SELECT * FROM v_latest_telemetry LIMIT 10;" ;;
+    5) "$0" watch ;;
+    6) export_csv ;;
+    7) "$0" upload ;;
+    8) doctor ;;
+    9) fix_all ;;
+    10) kill_project_python; stop_mqtt; stop_postgres ;;
+    0) return 0 ;;
+    *) warn "Unknown selection"; return 1 ;;
+  esac
+}
+
+raw_command="${1:-help}"
+command="$raw_command"
+shift || true
+
+case "$command" in
+  start) command=on ;;
+  stop) command=off ;;
+  run|launch|demo) command=go ;;
+  data|get|view) command=see ;;
+  export|download|backup) command=save ;;
+  db|database|postgresql) command=postgres ;;
+  check|health) command=doctor ;;
+  repair) command=fix ;;
+  query|sql) command=query ;;
+  publisher) command=simulator ;;
+  listen) command=subscriber ;;
+  path) command=where ;;
+  latest-export) command=latest ;;
+  watch-data) command=watch ;;
+  mqtt-status) command=mqtt ;;
+  *) ;;
+esac
+
+case "$command" in
+  setup) setup_all ;;
+  install) create_env_file; ensure_venv ;;
+  rebuild-venv)
+    read -r -p "Rebuild only the Python venv? Type REBUILD: " answer
+    [[ "$answer" == "REBUILD" ]] || { echo "Cancelled."; exit 0; }
+    rm -rf "$VENV"
+    ensure_venv
+    ;;
+  on) start_mqtt; start_postgres ;;
+  off) kill_project_python; stop_mqtt; stop_postgres ;;
+  restart) kill_project_python; stop_mqtt; stop_postgres; start_mqtt; start_postgres ;;
+  go) launch_pipeline ;;
+  kill) kill_project_python ;;
+  status) status_report ;;
+  doctor) doctor ;;
+  fix) fix_all ;;
+  menu) menu ;;
+  subscriber)
+    [[ -x "$VENV/bin/python" ]] || fail "Virtual environment missing. Run: iot setup"
+    cd "$PROJECT_ROOT" && exec "$VENV/bin/python" src/subscriber_arduinoevents.py
+    ;;
+  simulator)
+    [[ -x "$VENV/bin/python" ]] || fail "Virtual environment missing. Run: iot setup"
+    cd "$PROJECT_ROOT" && exec "$VENV/bin/python" src/arduino_events_simulate.py
+    ;;
+  python-check) python_check ;;
+  logs)
+    touch "$MQTT_LOG"
+    tail -f "$MQTT_LOG"
+    ;;
+  mqtt)
+    if port_open "$MQTT_HOST" "$MQTT_PORT"; then ok "MQTT is listening on $MQTT_HOST:$MQTT_PORT"; else warn "MQTT is not listening"; exit 1; fi
+    lsof -nP -iTCP:"$MQTT_PORT" -sTCP:LISTEN 2>/dev/null || true
+    ;;
+  mqtt-test)
+    start_mqtt
+    pub="$(command -v mosquitto_pub 2>/dev/null || true)"
+    if [[ -z "$pub" && -n "$BREW" ]]; then
+      prefix="$("$BREW" --prefix mosquitto 2>/dev/null || true)"
+      [[ -x "$prefix/bin/mosquitto_pub" ]] && pub="$prefix/bin/mosquitto_pub"
+    fi
+    [[ -n "$pub" ]] || fail "mosquitto_pub is missing. Run: iot setup"
+    "$pub" -h "$MQTT_HOST" -p "$MQTT_PORT" -t "devices/test-device/telemetry" -m "{\"device_id\":\"test-device\",\"timestamp\":\"$(date '+%Y-%m-%dT%H:%M:%S')\",\"temperature\":72.5,\"humidity\":45.2,\"status\":\"online\"}"
+    ok "Test message published"
+    ;;
+  postgres-status)
+    [[ -n "$BREW" ]] && "$BREW" services list | grep -E 'postgresql' || true
+    if port_open "$DB_HOST" "$DB_PORT"; then ok "PostgreSQL is listening on $DB_HOST:$DB_PORT"; else warn "PostgreSQL is not listening"; exit 1; fi
+    ;;
+  db-init) db_init ;;
+  postgres) start_postgres; psql_run -d "$DB_NAME" ;;
+  tables) psql_run -d "$DB_NAME" -c "\\dt"; psql_run -d "$DB_NAME" -c "\\dv" ;;
+  schema) psql_run -d "$DB_NAME" -c "\\d telemetry_logs" ;;
+  see) psql_run -d "$DB_NAME" -c "SELECT * FROM v_latest_telemetry LIMIT 10;" ;;
+  recent)
+    limit="${1:-10}"
+    [[ "$limit" =~ ^[0-9]+$ ]] || fail "Usage: iot recent 25"
+    psql_run -d "$DB_NAME" -c "SELECT * FROM v_latest_telemetry LIMIT $limit;"
+    ;;
+  watch)
+    while true; do clear; date; psql_run -d "$DB_NAME" -c "SELECT * FROM v_latest_telemetry LIMIT 10;" || true; sleep 3; done
+    ;;
+  count) psql_run -d "$DB_NAME" -c "SELECT COUNT(*) AS telemetry_rows FROM telemetry_logs;" ;;
+  devices) psql_run -d "$DB_NAME" -c "SELECT * FROM v_device_summary;" ;;
+  query)
+    [[ $# -gt 0 ]] || fail 'Usage: iot query "SELECT ..."'
+    psql_run -d "$DB_NAME" -c "$*"
+    ;;
+  clear)
+    read -r -p "Delete every telemetry row? Type CLEAR: " answer
+    [[ "$answer" == "CLEAR" ]] || { echo "Cancelled."; exit 0; }
+    psql_run -d "$DB_NAME" -c "TRUNCATE TABLE telemetry_logs RESTART IDENTITY;"
+    ;;
+  save) export_csv ;;
+  latest)
+    latest="$(latest_export)"
+    [[ -n "$latest" ]] || fail "No export found. Run: iot save"
+    echo "$latest"
+    head -n 15 "$latest"
+    ;;
+  exports) open "$EXPORT_DIR" ;;
+  analyze)
+    [[ -x "$VENV/bin/python" ]] || fail "Virtual environment missing. Run: iot setup"
+    if [[ $# -gt 0 ]]; then
+      cd "$PROJECT_ROOT" && "$VENV/bin/python" scripts/analytics_colab.py "$1"
+    else
+      cd "$PROJECT_ROOT" && "$VENV/bin/python" scripts/analytics_colab.py
+    fi
+    [[ "$(uname -s)" == "Darwin" ]] && open "$EXPORT_DIR/charts" || true
+    ;;
+  upload)
+    output="$(export_csv | tail -n 1)"
+    echo "Upload this CSV in Google Colab: $output"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      open -R "$output"
+      open "https://colab.research.google.com/"
+    fi
+    ;;
+  notebook)
+    notebook="$PROJECT_ROOT/notebooks/IoT_Telemetry_Analysis.ipynb"
+    echo "Notebook: $notebook"
+    if [[ "$(uname -s)" == "Darwin" ]]; then open -R "$notebook"; open "https://colab.research.google.com/"; fi
+    ;;
+  where) echo "$PROJECT_ROOT" ;;
+  help|*)
+    cat <<'EOF'
+IoT simple commands (both `iot` and `io` work):
+
+FIRST TIME
+  iot setup          Install and initialize everything
+  iot help           Show this help
+  io help            Same as iot help
+
+EASY WORDS
+  iot on             Start MQTT and PostgreSQL
+  iot off            Stop project processes and services
+  iot go             Launch subscriber, simulator, and live data
+  iot see            Show newest database rows
+  iot watch          Refresh newest rows
+  iot save           Export data to CSV
+  iot upload         Export data and open Google Colab
+  iot doctor         Diagnose problems
+  iot fix            Attempt safe repairs
+  iot menu           Open a numbered menu
+
+SERVICES AND CODE
+  iot status         Show ports and services
+  iot restart        Restart infrastructure
+  iot kill           Stop project Python processes
+  iot subscriber     Run the MQTT subscriber
+  iot simulator      Run the telemetry publisher
+  iot activate       Activate venv in the current shell
+  iot deactivate     Leave the current venv
+  iot python-check   Verify Python imports
+  iot rebuild-venv   Recreate only the Python environment
+
+MQTT
+  iot mqtt           Show broker status
+  iot mqtt-test      Publish one test event
+  iot logs           Follow MQTT logs
+
+POSTGRESQL
+  iot postgres       Open psql
+  iot db-init        Create/update database objects
+  iot postgres-status Show PostgreSQL service status
+  iot tables         List tables and views
+  iot schema         Show telemetry table schema
+  iot recent 25      Show a chosen number of rows
+  iot count          Count rows
+  iot devices        Summarize by device
+  iot query "..."    Run custom SQL
+  iot clear          Clear telemetry rows with confirmation
+
+EXPORT AND ANALYTICS
+  iot latest         Preview latest CSV
+  iot exports        Open export folder
+  iot analyze        Create summaries and charts
+  iot notebook       Reveal the included Colab notebook
+
+SYNONYMS
+  start=on, stop=off, run=go, view=see, export=save,
+  database=postgres, check=doctor, repair=fix
+EOF
+    ;;
+esac

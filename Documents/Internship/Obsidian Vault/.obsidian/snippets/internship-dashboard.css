@@ -1,0 +1,36 @@
+/* Visual treatment for the internship command center. */
+.internship-dashboard .markdown-preview-view,
+.internship-dashboard .markdown-source-view {
+  --dashboard-accent: #6d5dfc;
+  --dashboard-teal: #18a999;
+  --dashboard-ink: #20243a;
+  --dashboard-soft: #f6f7ff;
+}
+
+.internship-dashboard .inline-title {
+  color: var(--dashboard-ink);
+  font-size: 2.25em;
+  letter-spacing: -0.03em;
+}
+
+.internship-dashboard .callout {
+  border: 1px solid color-mix(in srgb, var(--dashboard-accent) 22%, transparent);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(55, 48, 163, 0.08);
+}
+
+.internship-dashboard table {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 6px 18px rgba(31, 41, 55, 0.06);
+}
+
+.internship-dashboard th {
+  background: linear-gradient(135deg, var(--dashboard-accent), var(--dashboard-teal));
+  color: white;
+}
+
+.internship-dashboard h2 {
+  border-bottom: 2px solid color-mix(in srgb, var(--dashboard-accent) 20%, transparent);
+  padding-bottom: 0.2em;
+}
