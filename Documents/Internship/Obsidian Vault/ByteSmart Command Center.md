@@ -49,10 +49,31 @@ ByteSmart combines environmental monitoring, sensor work, MQTT and PostgreSQL pi
 
 ## System health
 
-The current local organizer preserves original source files and watches the live project directory. The new ByteSmart refresh, review, and rebuild workflow will appear here as it is implemented.
+The local organizer preserves original source files and watches the live project directory. The local maintenance command updates the health summary below without using AI.
 
 → [[Automation Guide]] · [[ByteSmart Vault Specification]]
 
 → [[Review Queue]]
 
 → [[Rebuild Preview]]
+
+<!-- managed:dashboard-health:bytesmart:start -->
+## Live vault health
+
+| Signal | Current state |
+|---|---|
+| Local sources | 48 |
+| Connected-source records | 5 |
+| Source review | 31 |
+| Decision review | 0 |
+| Last local refresh | 2026-07-22 03:22 UTC |
+| Changed / skipped | 0 / 48 |
+| Active / next work | 5 / 5 |
+| Waiting / blocked work | 0 / 0 |
+
+Latest activity: Indexed 48 sources: 48 new, 0 changed, 31 needs review.
+
+→ [[Current Internship Work Queue]] · [[Meaningful Activity]]
+
+→ [[Review Queue]] · [[Rebuild Preview]] · [[Automation Guide]]
+<!-- managed:dashboard-health:bytesmart:end -->

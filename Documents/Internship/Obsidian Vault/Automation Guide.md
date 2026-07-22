@@ -72,7 +72,7 @@ The optional macOS job runs the same local Refresh and Review sequence every day
 zsh /Users/mokshjoshi/Documents/Internship/automation/install_vault_refresh_agent.sh
 ```
 
-It makes no model calls, does not fetch external content, and writes only the source registry, Review queue, and meaningful activity when relevant.
+It makes no model calls, does not fetch external content, and writes only the source registry, Review queue, dashboard health, and meaningful activity when relevant.
 
 ## Rebuild preview
 
@@ -82,4 +82,4 @@ Preview a safe reorganization of existing vault copies with:
 python3 /Users/mokshjoshi/Documents/Internship/automation/vault_rebuild.py --write-preview
 ```
 
-The preview lists proposed moves, unresolved items, and protected content left untouched. It does not change anything. Applying a reviewed preview requires both `--apply` and `--confirm`; live project sources are never candidates.
+The preview lists proposed moves, unresolved items, affected notes, and protected content left untouched. It does not change anything. Applying a reviewed preview requires both `--apply` and `--confirm`; live project sources are never candidates. Use `--only 'folder/file.ext'` to narrow a preview or apply to particular unlinked artifact copies.

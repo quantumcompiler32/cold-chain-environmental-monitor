@@ -363,6 +363,13 @@ def refresh_project(
         activity_path=vault_root / "Current Work" / "Meaningful Activity.md",
     )
     activity_path = _write_activity(vault_root, project, preliminary_result)
+    project_state["refreshed_at"] = refreshed_at
+    project_state["last_result"] = {
+        "changed": changed,
+        "new": new,
+        "unchanged": unchanged,
+        "review": review,
+    }
     _save_state(state_path, state)
     return RefreshResult(
         scanned=preliminary_result.scanned,

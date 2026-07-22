@@ -50,7 +50,7 @@ python3 automation/vault_refresh.py --project bytesmart
 
 Refresh writes one current source registry and a meaningful activity log inside the vault. It does not copy, modify, or delete original source files, and it skips unchanged sources using local timestamps, file sizes, and hashes.
 
-Run the normal local maintenance sequence—Refresh followed by Review—with one command:
+Run the normal local maintenance sequence—Refresh, Review, then dashboard health—with one command:
 
 ```bash
 python3 automation/vault_maintenance.py
@@ -62,7 +62,7 @@ Install the daily 8:00 AM macOS job with:
 zsh automation/install_vault_refresh_agent.sh
 ```
 
-The daily job runs only the local refresh and Review queue. Its logs are `automation/vault-refresh.log` and `automation/vault-refresh-error.log`.
+The daily job runs only local refresh, Review, and dashboard health. Its logs are `automation/vault-refresh.log` and `automation/vault-refresh-error.log`.
 
 To add a future project, add one `[[project]]` entry to `projects.toml` with its ID, title, source roots, rule file, and active state. The refresh code and note model stay shared.
 
@@ -88,4 +88,4 @@ Preview proposed moves of existing vault copies without changing anything:
 python3 automation/vault_rebuild.py --write-preview
 ```
 
-Only `--apply --confirm` moves the proposed vault copies. Live project sources and protected note content are never candidates.
+Only `--apply --confirm` moves the proposed vault copies. Use `--only 'folder/file.ext'` to narrow the plan. Linked copies are held for manual migration so existing vault navigation stays intact; live project sources and protected note content are never candidates.
