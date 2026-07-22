@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from project_registry import Project
-from vault_refresh import main, refresh_project
+from vault_refresh import load_external_sources, main, refresh_project
 from vault_rules import load_rules
 
 
@@ -141,6 +141,36 @@ class VaultRefreshTests(unittest.TestCase):
             self.assertEqual(len(source_ids), 2)
             self.assertEqual(len(set(source_ids)), 2)
 
+    def test_loads_external_source_records_without_scanning_their_content(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "external_sources.toml"
+            path.write_text(
+                """
+                version = 1
+
+                [[source]]
+                project = "bytesmart"
+                id = "daily-reports"
+                title = "Gmail daily reports"
+                source_type = "gmail"
+                branch = "Connected Sources"
+                reference = "Gmail search: subject:Daily Report"
+                authority = "Primary"
+                coverage = "Partial"
+                sensitivity = "Sensitive"
+                checked_at = "2026-07-21"
+                sync_status = "Current"
+                promotion_status = "Registry only"
+                """,
+                encoding="utf-8",
+            )
+
+            sources = load_external_sources(path, "bytesmart")
+
+            self.assertEqual(len(sources), 1)
+            self.assertEqual(sources[0].source_id, "bytesmart-external-daily-reports")
+            self.assertEqual(sources[0].sensitivity, "Sensitive")
+
     def test_refresh_command_can_target_a_registered_project(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             base = Path(temp_dir)
@@ -171,6 +201,7 @@ class VaultRefreshTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertEqual(json.loads(output.getvalue()), {
                 "changed": 0,
+                "external": 0,
                 "new": 1,
                 "project": "bytesmart",
                 "review": 0,

@@ -52,6 +52,8 @@ Refresh writes one current source registry and a meaningful activity log inside 
 
 To add a future project, add one `[[project]]` entry to `projects.toml` with its ID, title, source roots, rule file, and active state. The refresh code and note model stay shared.
 
+`external_sources.toml` holds metadata-only Gmail and Google Drive references for each project. Refresh adds those rows to the same source registry without downloading, copying, or summarizing their content.
+
 ## Review queue
 
 Build the readable local Review queue after a refresh:

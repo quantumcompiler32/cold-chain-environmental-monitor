@@ -44,6 +44,8 @@ python3 /Users/mokshjoshi/Documents/Internship/automation/vault_refresh.py
 
 The existing login watcher still maintains the older `Artifacts` copies. It will be replaced only after the ByteSmart refresh workflow is fully verified.
 
+Gmail and Google Drive references live in `automation/external_sources.toml`. Refresh adds their metadata to the same registry without depending on connector access or copying external content.
+
 ## Review queue
 
 After a refresh, build the one readable review page with:

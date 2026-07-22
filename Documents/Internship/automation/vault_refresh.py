@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import sys
 from typing import Iterator
+import tomllib
 
 from internship_organizer import is_ignored
 from project_registry import Project, ProjectRegistryError, load_projects
@@ -42,6 +43,7 @@ class SourceRecord:
 @dataclass(frozen=True)
 class RefreshResult:
     scanned: int
+    external: int
     new: int
     changed: int
     unchanged: int
@@ -123,6 +125,52 @@ def _source_id(project: Project, root: Path, path: Path) -> str:
 
 def _source_type(path: Path) -> str:
     return path.suffix.lower().lstrip(".") or "file"
+
+
+def _external_value(raw: dict[str, object], field: str) -> str:
+    value = raw.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"external source {field} must be a non-empty string")
+    return value.strip()
+
+
+def load_external_sources(path: Path, project_id: str) -> tuple[SourceRecord, ...]:
+    """Load metadata-only Gmail and Drive references without fetching their content."""
+    if not path.exists():
+        return ()
+    with path.open("rb") as source_file:
+        raw = tomllib.load(source_file)
+    if raw.get("version") != 1:
+        raise ValueError("external source configuration must use version 1")
+    entries = raw.get("source", [])
+    if not isinstance(entries, list):
+        raise ValueError("external source configuration must contain source tables")
+    records: list[SourceRecord] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("project") != project_id:
+            continue
+        identifier = _external_value(entry, "id")
+        branch = _external_value(entry, "branch")
+        records.append(
+            SourceRecord(
+                source_id=f"{project_id}-external-{identifier}",
+                title=_external_value(entry, "title"),
+                source_type=_external_value(entry, "source_type"),
+                branch=branch,
+                reference=_external_value(entry, "reference"),
+                authority=_external_value(entry, "authority"),
+                coverage=_external_value(entry, "coverage"),
+                sensitivity=_external_value(entry, "sensitivity"),
+                checked_at=_external_value(entry, "checked_at"),
+                content_hash="metadata-only",
+                sync_status=_external_value(entry, "sync_status"),
+                promotion_status=_external_value(entry, "promotion_status"),
+                review_reason="—",
+            )
+        )
+    if len({record.source_id for record in records}) != len(records):
+        raise ValueError(f"external source IDs must be unique for project: {project_id}")
+    return tuple(records)
 
 
 def _record_from(
@@ -235,7 +283,9 @@ def _write_activity(vault_root: Path, project: Project, result: RefreshResult) -
     return activity_path
 
 
-def refresh_project(project: Project, rules: VaultRules, vault_root: Path) -> RefreshResult:
+def refresh_project(
+    project: Project, rules: VaultRules, vault_root: Path, external_sources: tuple[SourceRecord, ...] = ()
+) -> RefreshResult:
     """Refresh one project using only local files, rules, hashes, and Markdown output."""
     vault_root = vault_root.expanduser().resolve()
     state_path = _state_path(vault_root)
@@ -292,10 +342,13 @@ def refresh_project(project: Project, rules: VaultRules, vault_root: Path) -> Re
             "checked_at": checked_at,
         }
 
+    records.extend(external_sources)
+
     project_state["files"] = next_files
     registry_path = _write_registry(vault_root, project, records)
     preliminary_result = RefreshResult(
-        scanned=len(records),
+        scanned=len(records) - len(external_sources),
+        external=len(external_sources),
         new=new,
         changed=changed,
         unchanged=unchanged,
@@ -307,6 +360,7 @@ def refresh_project(project: Project, rules: VaultRules, vault_root: Path) -> Re
     _save_state(state_path, state)
     return RefreshResult(
         scanned=preliminary_result.scanned,
+        external=preliminary_result.external,
         new=preliminary_result.new,
         changed=preliminary_result.changed,
         unchanged=preliminary_result.unchanged,
@@ -321,13 +375,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--projects", type=Path, default=DEFAULT_PROJECTS)
     parser.add_argument("--vault", type=Path, default=DEFAULT_VAULT)
+    parser.add_argument("--external-sources", type=Path)
     parser.add_argument("--project", help="project ID; defaults to the active project")
     args = parser.parse_args(argv)
     try:
         registry = load_projects(args.projects)
         project = registry.project(args.project) if args.project else registry.active_project
         rules_path = project.rules_file if project.rules_file.is_absolute() else args.projects.parent / project.rules_file
-        result = refresh_project(project, load_rules(rules_path), args.vault)
+        external_sources_path = args.external_sources or args.projects.parent / "external_sources.toml"
+        result = refresh_project(
+            project,
+            load_rules(rules_path),
+            args.vault,
+            load_external_sources(external_sources_path, project.id),
+        )
     except (FileNotFoundError, OSError, json.JSONDecodeError, ProjectRegistryError, RuleValidationError, ValueError) as error:
         print(f"Refresh failed: {error}", file=sys.stderr)
         return 1
@@ -336,6 +397,7 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "project": project.id,
                 "scanned": result.scanned,
+                "external": result.external,
                 "new": result.new,
                 "changed": result.changed,
                 "unchanged": result.unchanged,

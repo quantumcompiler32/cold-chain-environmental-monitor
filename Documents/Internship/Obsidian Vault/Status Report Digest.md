@@ -1,6 +1,24 @@
+---
+type: source
+project: ByteSmart
+branch: Connected Sources
+status: Active
+source:
+  - "Gmail: sent Daily Report messages to bitwiseacademy.com"
+created: 2026-07-21
+updated: 2026-07-21
+confidence: medium
+review: false
+cssclasses:
+  - bytesmart-branch
+  - branch-connected-sources
+---
+
 # Status Report Digest
 
 Detailed chronological digest of the Gmail status reports reviewed for ByteSmart and Bitwise.
+
+The reports are useful first-person evidence, but they are not a complete work log. Use them with project files, code, Drive records, and the source registry when checking what happened.
 
 ## 2026-06-24 — Direction
 
@@ -61,4 +79,3 @@ Verified the MQTT/PostgreSQL pipeline end to end using CSV-backed JSON events. T
 - [[ByteSmart Project]]
 - [[Current Internship Work Queue]]
 - [[Internship Context And Glossary]]
-
