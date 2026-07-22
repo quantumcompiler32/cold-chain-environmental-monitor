@@ -10,6 +10,8 @@ const {
   getChartHeight,
   createDemoEvents,
   buildStatusCounts,
+  getProfile,
+  normalizeEvent,
 } = require('../vaccine-data.js');
 
 test('classifies Pfizer ultralow temperatures using the documented profile', () => {
@@ -28,8 +30,10 @@ test('parses the temperature project CSV into the dashboard event vocabulary', (
   ].join('\n');
   const [event] = parseTemperatureEvents(csv, 'csv');
   assert.deepEqual(event, {
+    event_id: '2026-07-22 10:00:01-07',
     device_id: 'device-a',
     timestamp: '2026-07-22 10:00:00-07',
+    received_at: '2026-07-22 10:00:01-07',
     source_timestamp: '2020-12-16 11:25:54',
     sensor_name: 'Pod2',
     vaccine_type: 'pfizer_ultralow',
@@ -84,4 +88,23 @@ test('demo events visibly include both sides of the safety range', () => {
 test('chart height grows with the number of selected Pods', () => {
   assert.ok(getChartHeight(6) > getChartHeight(1));
   assert.equal(getChartHeight(0), getChartHeight(1));
+});
+
+test('classifies Moderna events using custom bounds', () => {
+  const profile = getProfile('moderna', { min_temp: -35, max_temp: -25 });
+  assert.equal(normalizeEvent({ sensor_name: 'Pod4', timestamp: '2026-07-22T10:00:00Z', temperature_c: -30 }, profile).status, 'STABLE');
+  assert.equal(normalizeEvent({ sensor_name: 'Pod4', timestamp: '2026-07-22T10:00:01Z', temperature_c: -36 }, profile).status, 'TOO_COLD');
+  assert.equal(normalizeEvent({ sensor_name: 'Pod4', timestamp: '2026-07-22T10:00:02Z', temperature_c: -24 }, profile).status, 'TOO_WARM');
+});
+
+test('chart keeps repeated live timestamps as separate points', () => {
+  const events = [
+    { event_id: '1', sensor_name: 'Pod1', temperature_c: -78, timestamp: '2026-07-22T10:00:00Z' },
+    { event_id: '2', sensor_name: 'Pod1', temperature_c: -77, timestamp: '2026-07-22T10:00:00Z' },
+    { event_id: '3', sensor_name: 'Pod2', temperature_c: -79, timestamp: '2026-07-22T10:00:00Z' },
+  ];
+  const chart = buildChartSeries(events, ['Pod1', 'Pod2']);
+  assert.equal(chart.labels.length, 2);
+  assert.deepEqual(chart.series[0].values, [-78, -77]);
+  assert.deepEqual(chart.series[1].values, [-79, null]);
 });

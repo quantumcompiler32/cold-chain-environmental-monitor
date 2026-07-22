@@ -12,13 +12,25 @@
   });
 
   const STATUS_ORDER = ['STABLE', 'ACCEPTABLE', 'TOO_COLD', 'TOO_WARM'];
+  const PROFILE_DEFINITIONS = {
+    pfizer_ultralow: { id: 'pfizer_ultralow', label: 'Pfizer ultralow', targetC: -78.5, lowerLimitC: -80, upperLimitC: -60 },
+    moderna: { id: 'moderna', label: 'Moderna', targetC: -30, lowerLimitC: null, upperLimitC: null },
+  };
 
-  function classifyTemperature(value) {
+  function getProfile(id = PROFILE.id, bounds = {}) {
+    const base = PROFILE_DEFINITIONS[id] || PROFILE_DEFINITIONS[PROFILE.id];
+    const lowerLimitC = bounds.min_temp == null ? base.lowerLimitC : Number(bounds.min_temp);
+    const upperLimitC = bounds.max_temp == null ? base.upperLimitC : Number(bounds.max_temp);
+    return Object.freeze({ ...base, lowerLimitC, upperLimitC });
+  }
+
+  function classifyTemperature(value, profile = PROFILE) {
     const temperature = Number(value);
     if (!Number.isFinite(temperature)) return 'UNKNOWN';
-    if (Math.abs(temperature - PROFILE.targetC) <= 1) return 'STABLE';
-    if (temperature < PROFILE.lowerLimitC) return 'TOO_COLD';
-    if (temperature > PROFILE.upperLimitC) return 'TOO_WARM';
+    if (!Number.isFinite(profile.lowerLimitC) || !Number.isFinite(profile.upperLimitC)) return 'UNKNOWN';
+    if (temperature < profile.lowerLimitC) return 'TOO_COLD';
+    if (temperature > profile.upperLimitC) return 'TOO_WARM';
+    if (Math.abs(temperature - profile.targetC) <= 1) return 'STABLE';
     return 'ACCEPTABLE';
   }
 
@@ -45,17 +57,19 @@
     return fields;
   }
 
-  function normalizeEvent(raw) {
+  function normalizeEvent(raw, profile = PROFILE) {
     const temperature = Number(raw.temperature_c ?? raw.temperature ?? raw.temp_c);
     return {
+      event_id: String(raw.event_id ?? raw.event_sequence ?? raw.received_at ?? `${raw.timestamp ?? raw.event_timestamp ?? ''}|${raw.sensor_name ?? raw.sensor ?? ''}|${temperature}`),
       device_id: String(raw.device_id ?? 'vaccine_temperature_simulator'),
       timestamp: String(raw.timestamp ?? raw.event_timestamp ?? raw.received_at ?? ''),
+      received_at: String(raw.received_at ?? ''),
       source_timestamp: String(raw.source_timestamp ?? ''),
       sensor_name: String(raw.sensor_name ?? raw.sensor ?? 'Unknown'),
       vaccine_type: String(raw.vaccine_type ?? PROFILE.id),
       scenario: String(raw.scenario ?? 'normal'),
       temperature_c: temperature,
-      status: classifyTemperature(temperature),
+      status: classifyTemperature(temperature, profile),
     };
   }
 
@@ -73,6 +87,7 @@
   }
 
   function parseWideTemperatureCsv(lines, headers, options = {}) {
+    const profile = options.profile || PROFILE;
     const dateIndex = headers.findIndex((header) => header.toLowerCase() === 'date');
     const timeIndex = headers.findIndex((header) => header.toLowerCase() === 'time');
     const podColumns = headers.map((header, index) => ({ header, index })).filter(({ header }) => /^pod\d+$/i.test(header));
@@ -97,7 +112,7 @@
           vaccine_type: PROFILE.id,
           scenario: 'normal',
           temperature_c: Number(((fahrenheit - 32) * 5 / 9).toFixed(2)),
-        }));
+        }, profile));
       });
     });
     return events;
@@ -123,13 +138,14 @@
   }
 
   function parseTemperatureEvents(input, format, options = {}) {
-    if (Array.isArray(input)) return limitEvents(input.map(normalizeEvent).filter((event) => Number.isFinite(event.temperature_c)), options.maxEvents);
+    const profile = options.profile || PROFILE;
+    if (Array.isArray(input)) return limitEvents(input.map((event) => normalizeEvent(event, profile)).filter((event) => Number.isFinite(event.temperature_c)), options.maxEvents);
     if (typeof input !== 'string' || !input.trim()) return [];
 
     if (format === 'json' || input.trim().startsWith('[') || input.trim().startsWith('{')) {
       const parsed = JSON.parse(input);
       const events = Array.isArray(parsed) ? parsed : (parsed.events || parsed.data || [parsed]);
-      return limitEvents(events.map(normalizeEvent).filter((event) => Number.isFinite(event.temperature_c)), options.maxEvents);
+      return limitEvents(events.map((event) => normalizeEvent(event, profile)).filter((event) => Number.isFinite(event.temperature_c)), options.maxEvents);
     }
 
     const lines = input.trim().split(/\r?\n/).filter(Boolean);
@@ -140,7 +156,7 @@
     }
     return lines.slice(1).map((line) => {
       const values = parseCsvLine(line);
-      return normalizeEvent(Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ''])));
+      return normalizeEvent(Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ''])), profile);
     }).filter((event) => Number.isFinite(event.temperature_c)).slice(0, options.maxEvents || undefined);
   }
 
@@ -149,8 +165,13 @@
     return Number.isFinite(value) ? value : 0;
   }
 
+  function eventSequence(event) {
+    const value = Number(event.event_id);
+    return Number.isFinite(value) ? value : 0;
+  }
+
   function sortedEvents(events) {
-    return events.slice().sort((left, right) => timestampValue(left.timestamp) - timestampValue(right.timestamp));
+    return events.slice().sort((left, right) => timestampValue(left.timestamp) - timestampValue(right.timestamp) || eventSequence(left) - eventSequence(right));
   }
 
   function summarizeSensors(events) {
@@ -187,16 +208,31 @@
     const sensors = selectedSensors && selectedSensors.length
       ? selectedSensors
       : summarizeSensors(events).slice(0, 6).map((sensor) => sensor.sensorName);
-    const bySensor = new Map(sensors.map((sensor) => [sensor, new Map()]));
+    const byTimestamp = new Map();
     sortedEvents(events).forEach((event) => {
-      if (bySensor.has(event.sensor_name)) bySensor.get(event.sensor_name).set(event.timestamp, event.temperature_c);
+      if (!sensors.includes(event.sensor_name)) return;
+      const bucket = byTimestamp.get(event.timestamp) || new Map();
+      const values = bucket.get(event.sensor_name) || [];
+      values.push(event.temperature_c);
+      bucket.set(event.sensor_name, values);
+      byTimestamp.set(event.timestamp, bucket);
     });
-    const labels = Array.from(new Set(sortedEvents(events).map((event) => event.timestamp)));
+    const labels = [];
+    Array.from(byTimestamp.entries()).forEach(([timestamp, bucket]) => {
+      const occurrences = Math.max(...sensors.map((sensor) => (bucket.get(sensor) || []).length), 1);
+      for (let occurrence = 0; occurrence < occurrences; occurrence += 1) labels.push({ timestamp, occurrence });
+    });
     return {
-      labels,
+      labels: labels.map((point) => point.timestamp),
       series: sensors.map((sensorName) => ({
         sensorName,
-        values: labels.map((label) => bySensor.get(sensorName).get(label) ?? null),
+        values: labels.map((label, index) => {
+          const point = labels[index];
+          const bucket = byTimestamp.get(point.timestamp);
+          const values = bucket?.get(sensorName) || [];
+          const prior = labels.slice(0, index).filter((candidate) => candidate.timestamp === point.timestamp).length;
+          return values[prior] ?? null;
+        }),
       })),
     };
   }
@@ -269,6 +305,9 @@
 
   return {
     PROFILE,
+    PROFILE_DEFINITIONS,
+    getProfile,
+    normalizeEvent,
     STATUS_ORDER,
     classifyTemperature,
     parseTemperatureEvents,

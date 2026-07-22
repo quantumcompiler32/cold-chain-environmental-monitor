@@ -5,10 +5,22 @@
   const COLORS = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#6b7280'];
   const SCENARIO_COLORS = { normal: '#10b981', recovery: '#3b82f6', outlier: '#f59e0b', failure: '#ef4444' };
   const DEFAULT_SENSORS = ['Pod1', 'Pod2', 'Pod3', 'Pod6', 'Pod11', 'Pod20'];
+  const ALL_PODS = Array.from({ length: 20 }, (_, index) => `Pod${index + 1}`);
+  const BRIDGE_URL = 'http://127.0.0.1:8787';
   let events = data.createDemoEvents();
   let selectedSensors = DEFAULT_SENSORS.slice();
+  let runSensors = DEFAULT_SENSORS.slice();
+  let profile = data.PROFILE;
   let dataLabel = 'Using built-in demo events';
   let sourceLabel = 'LOCAL DEMO';
+  let bridgeOnline = false;
+  let liveMode = false;
+  let eventSource;
+  let livePollTimer;
+  let lastLiveEventId = 0;
+  let liveRunId;
+  let renderQueued = false;
+  let bridgePollTimer;
   let toastTimer;
 
   const $ = (id) => document.getElementById(id);
@@ -16,7 +28,8 @@
   const formatC = (value) => Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}°C` : '—';
   const statusLabel = (status) => ({ STABLE: 'Stable', ACCEPTABLE: 'Acceptable', TOO_COLD: 'Too cold', TOO_WARM: 'Too warm', UNKNOWN: 'No reading' }[status] || status);
   const statusClass = (status) => String(status || 'UNKNOWN').toLowerCase().replace('_', '-');
-  const sorted = (list) => list.slice().sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
+  const sorted = (list) => list.slice().sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp) || Number(left.event_id) - Number(right.event_id));
+  const rangeText = () => Number.isFinite(profile.lowerLimitC) && Number.isFinite(profile.upperLimitC) ? `${formatC(profile.lowerLimitC)} to ${formatC(profile.upperLimitC)}` : 'Custom bounds required';
 
   function showToast(message) {
     const toast = $('toast');
@@ -60,22 +73,14 @@
     const outOfRange = summaries.filter((sensor) => sensor.status === 'TOO_COLD' || sensor.status === 'TOO_WARM');
     const names = outOfRange.slice(0, 3).map((sensor) => sensor.sensorName).join(', ');
     attention.classList.toggle('safe', outOfRange.length === 0);
-    $('attentionTitle').textContent = outOfRange.length ? `${outOfRange.length} package sensor${outOfRange.length === 1 ? '' : 's'} need review` : 'All package sensors are in range';
-    $('attentionText').textContent = outOfRange.length ? `${names}${outOfRange.length > 3 ? ' and more' : ''} outside −80°C to −60°C. Check affected stock before use.` : 'The latest readings are within the documented Pfizer ultralow range.';
-    $('reviewButton').textContent = outOfRange.length ? 'Review excursion' : 'View sensor table';
-    $('reviewButton').onclick = () => {
-      if (outOfRange.length) {
-        selectedSensors = [outOfRange[0].sensorName, ...selectedSensors.filter((sensor) => sensor !== outOfRange[0].sensorName)].slice(0, 6);
-        render();
-      }
-      $('sensorTableCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    };
+    $('attentionTitle').textContent = outOfRange.length ? `Simulation: ${outOfRange.length} sensor${outOfRange.length === 1 ? '' : 's'} outside range` : 'All simulated sensors are in range';
+    $('attentionText').textContent = outOfRange.length ? `${names}${outOfRange.length > 3 ? ' and more' : ''} are outside ${rangeText()}. Use the trend, status bars, and table to inspect the generated behavior.` : `The latest simulated readings are within the documented ${profile.label} range.`;
   }
 
   function renderPicker(availableSensors) {
     const picker = $('sensorPicker');
     const active = selectedSensors.filter((sensor) => availableSensors.includes(sensor));
-    selectedSensors = active.length ? active : availableSensors.slice(0, 6);
+    if (!liveMode) selectedSensors = active.length ? active : availableSensors.length ? availableSensors.slice(0, 6) : selectedSensors;
     picker.innerHTML = availableSensors.map((sensorName, index) => `<button class="sensor-chip${selectedSensors.includes(sensorName) ? ' selected' : ''}" type="button" aria-pressed="${selectedSensors.includes(sensorName)}" data-sensor="${esc(sensorName)}" style="--chip-color:${COLORS[index % COLORS.length]}">${esc(sensorName)}</button>`).join('');
     picker.querySelectorAll('[data-sensor]').forEach((button) => button.addEventListener('click', () => {
       const sensor = button.dataset.sensor;
@@ -113,16 +118,18 @@
     const margin = { top: 14, right: 12, bottom: 28, left: 40 };
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
-    const min = -85;
-    const max = -55;
+    const lower = Number.isFinite(profile.lowerLimitC) ? profile.lowerLimitC : profile.targetC - 10;
+    const upper = Number.isFinite(profile.upperLimitC) ? profile.upperLimitC : profile.targetC + 10;
+    const min = Math.min(lower, profile.targetC) - 5;
+    const max = Math.max(upper, profile.targetC) + 5;
     const x = (index) => margin.left + (chart.labels.length <= 1 ? plotWidth / 2 : index * plotWidth / (chart.labels.length - 1));
     const y = (value) => margin.top + (max - value) * plotHeight / (max - min);
-    const yTicks = [-85, -80, -75, -70, -65, -60, -55];
+    const yTicks = Array.from({ length: 7 }, (_, index) => min + (max - min) * index / 6).reverse();
     const xTicks = chart.labels.map((label, index) => ({ label, index })).filter((_, index) => index === 0 || index === chart.labels.length - 1 || index % Math.max(1, Math.floor(chart.labels.length / 5)) === 0);
     const grid = yTicks.map((tick) => `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(tick)}" y2="${y(tick)}" stroke="rgba(255,255,255,.06)"/><text x="${margin.left - 8}" y="${y(tick) + 3}" text-anchor="end" fill="#6b7280" font-size="10">${tick}°</text>`).join('');
     const labels = xTicks.map(({ label, index }) => `<text x="${x(index)}" y="${height - 7}" text-anchor="middle" fill="#6b7280" font-size="10">${esc(new Date(label).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}</text>`).join('');
     const lines = chart.series.map((series, index) => `<path d="${linePath(series.values, x, y)}" fill="none" stroke="${COLORS[index % COLORS.length]}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`).join('');
-    target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Selected package temperature trend"><rect x="${margin.left}" y="${y(-60)}" width="${plotWidth}" height="${y(-80) - y(-60)}" fill="rgba(16,185,129,.1)"/><line x1="${margin.left}" x2="${width - margin.right}" y1="${y(-80)}" y2="${y(-80)}" stroke="rgba(96,165,250,.65)" stroke-dasharray="4 4"/><line x1="${margin.left}" x2="${width - margin.right}" y1="${y(-60)}" y2="${y(-60)}" stroke="rgba(239,68,68,.65)" stroke-dasharray="4 4"/><line x1="${margin.left}" x2="${width - margin.right}" y1="${y(data.PROFILE.targetC)}" y2="${y(data.PROFILE.targetC)}" stroke="#fbbf24" stroke-dasharray="2 4"/>${grid}${lines}${labels}</svg>`;
+    target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Selected package temperature trend"><rect x="${margin.left}" y="${y(upper)}" width="${plotWidth}" height="${y(lower) - y(upper)}" fill="rgba(16,185,129,.1)"/><line x1="${margin.left}" x2="${width - margin.right}" y1="${y(lower)}" y2="${y(lower)}" stroke="rgba(96,165,250,.65)" stroke-dasharray="4 4"/><line x1="${margin.left}" x2="${width - margin.right}" y1="${y(upper)}" y2="${y(upper)}" stroke="rgba(239,68,68,.65)" stroke-dasharray="4 4"/><line x1="${margin.left}" x2="${width - margin.right}" y1="${y(profile.targetC)}" y2="${y(profile.targetC)}" stroke="#fbbf24" stroke-dasharray="2 4"/>${grid}${lines}${labels}</svg>`;
   }
 
   function renderStatusBars(summaries) {
@@ -202,8 +209,14 @@
     renderTable(summaries);
     renderProvenance();
     $('dataMode').textContent = dataLabel;
-    $('rawMode').textContent = sourceLabel === 'LOCAL DEMO' ? 'DEMO' : 'FILE';
+    $('modePill').textContent = liveMode ? 'LIVE MQTT' : sourceLabel === 'LOCAL DEMO' ? 'DEMO SIMULATION' : 'IMPORTED FILE';
+    $('rawMode').textContent = sourceLabel === 'LOCAL DEMO' ? 'DEMO' : sourceLabel === 'LIVE MQTT' ? 'LIVE' : 'FILE';
     $('rawSource').textContent = sourceLabel;
+    $('rawProfile').textContent = profile.label.toUpperCase();
+    $('profileName').textContent = profile.label;
+    $('profileTarget').textContent = formatC(profile.targetC);
+    $('profileRange').textContent = rangeText();
+    $('trendSub').textContent = `${selectedSensors.length} sensor${selectedSensors.length === 1 ? '' : 's'} selected · threshold band ${rangeText()}`;
     const filter = $('rawSensorFilter');
     const current = filter.value;
     filter.innerHTML = `<option value="all">ALL PODS</option>${sensors.map((sensor) => `<option value="${esc(sensor)}">${esc(sensor)}</option>`).join('')}`;
@@ -225,7 +238,7 @@
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const importedEvents = data.parseTemperatureEvents(String(reader.result), file.name.toLowerCase().endsWith('.json') ? 'json' : 'csv', { maxEvents: 12000 });
+        const importedEvents = data.parseTemperatureEvents(String(reader.result), file.name.toLowerCase().endsWith('.json') ? 'json' : 'csv', { maxEvents: 12000, profile });
         events = data.limitEvents(importedEvents, 12000);
         if (!events.length) throw new Error('No temperature events found');
         selectedSensors = data.summarizeSensors(events).slice(0, 6).map((sensor) => sensor.sensorName);
@@ -241,12 +254,193 @@
     reader.readAsText(file);
   }
 
+  function setBridgeState(online, message = online ? 'Bridge connected' : 'Bridge offline') {
+    bridgeOnline = online;
+    const status = $('bridgeStatus');
+    status.classList.toggle('online', online);
+    status.classList.toggle('offline', !online);
+    status.innerHTML = `<i></i>${esc(message)}`;
+    updateRunButtons();
+  }
+
+  function selectedRunProfile() {
+    const id = $('runProfile').value;
+    const min = $('runMinTemp').value === '' ? null : Number($('runMinTemp').value);
+    const max = $('runMaxTemp').value === '' ? null : Number($('runMaxTemp').value);
+    return data.getProfile(id, { min_temp: min, max_temp: max });
+  }
+
+  function runFormError() {
+    const chosen = selectedRunProfile();
+    if (runSensors.length === 0) return 'Select at least one Pod.';
+    if (!Number.isInteger(Number($('runInterval').value)) || Number($('runInterval').value) < 50) return 'Interval must be at least 50 ms.';
+    if (!Number.isInteger(Number($('runMaxEvents').value)) || Number($('runMaxEvents').value) < 1) return 'Events per Pod must be at least 1.';
+    if (chosen.lowerLimitC == null || chosen.upperLimitC == null) return 'Moderna requires both custom temperature bounds.';
+    if (chosen.lowerLimitC >= chosen.upperLimitC) return 'Minimum temperature must be lower than maximum temperature.';
+    return '';
+  }
+
+  function updateRunButtons() {
+    const error = runFormError();
+    const running = $('startRunButton').dataset.running === 'true';
+    $('startRunButton').disabled = !bridgeOnline || Boolean(error) || running;
+    $('stopRunButton').disabled = !running;
+    if (!running && error) $('runProgress').textContent = error;
+    if (!running && !error && /^(Select at least one Pod|Interval must be|Events per Pod must be|Moderna requires|Minimum temperature must be)/.test($('runProgress').textContent)) $('runProgress').textContent = 'Ready to run.';
+  }
+
+  function renderRunPods() {
+    $('runPodPicker').innerHTML = ALL_PODS.map((sensor) => `<button type="button" class="run-pod${runSensors.includes(sensor) ? ' selected' : ''}" aria-pressed="${runSensors.includes(sensor)}" data-run-pod="${sensor}">${sensor}</button>`).join('');
+    $('runPodPicker').querySelectorAll('[data-run-pod]').forEach((button) => button.addEventListener('click', () => {
+      const sensor = button.dataset.runPod;
+      runSensors = runSensors.includes(sensor) ? runSensors.filter((item) => item !== sensor) : [...runSensors, sensor];
+      renderRunPods();
+      updateRunButtons();
+    }));
+  }
+
+  async function refreshBridge() {
+    try {
+      const response = await fetch(`${BRIDGE_URL}/health`, { cache: 'no-store' });
+      if (!response.ok) throw new Error('health check failed');
+      const health = await response.json();
+      setBridgeState(Boolean(health.mqtt_connected), health.mqtt_connected ? 'Bridge connected' : 'Bridge online · MQTT offline');
+      const status = await fetch(`${BRIDGE_URL}/api/run/status`, { cache: 'no-store' });
+      if (status.ok) updateRunStatus(await status.json());
+    } catch (error) {
+      setBridgeState(false);
+    }
+  }
+
+  function updateRunStatus(status) {
+    const running = Boolean(status.running);
+    $('startRunButton').dataset.running = String(running);
+    $('stopRunButton').disabled = !running;
+    if (status.message) $('runProgress').textContent = status.message;
+    if (!running && liveMode && status.state === 'completed') {
+      dataLabel = `Live ${profile.label} run · ${events.length.toLocaleString()} events received`;
+      $('dataMode').textContent = dataLabel;
+      $('runProgress').textContent = `Run complete · ${events.length.toLocaleString()} events received.`;
+      showToast('Live run complete.');
+    }
+    updateRunButtons();
+  }
+
+  function queueLiveRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    const draw = () => { renderQueued = false; render(); };
+    if (typeof global.requestAnimationFrame === 'function') global.requestAnimationFrame(draw); else setTimeout(draw, 16);
+  }
+
+  function connectEventStream() {
+    if (eventSource) eventSource.close();
+    clearTimeout(livePollTimer);
+    lastLiveEventId = 0;
+    if (typeof EventSource !== 'undefined') {
+      eventSource = new EventSource(`${BRIDGE_URL}/api/events/stream`);
+      eventSource.onopen = () => setBridgeState(true, 'Bridge connected');
+      eventSource.onmessage = (message) => {
+        try {
+          const payload = JSON.parse(message.data);
+          if (payload.type === 'event' && payload.event) acceptLiveEvent(payload.event);
+          else if (payload.type === 'run_status') updateRunStatus(payload);
+          else if (payload.type === 'error') showToast(payload.message || 'Bridge error.');
+        } catch (error) {
+          showToast('Received an unreadable event from the bridge.');
+        }
+      };
+      eventSource.onerror = () => setBridgeState(false, 'Bridge disconnected');
+    }
+    // Polling is also kept active because embedded/local browser shells may not expose EventSource.
+    pollLiveEvents();
+  }
+
+  function acceptLiveEvent(rawEvent) {
+    if (!liveRunId || (rawEvent.run_id && rawEvent.run_id !== liveRunId)) return;
+    const sequence = Number(rawEvent.event_sequence || rawEvent.event_id) || 0;
+    if (sequence && sequence <= lastLiveEventId) return;
+    lastLiveEventId = Math.max(lastLiveEventId, sequence);
+    events.push(data.normalizeEvent(rawEvent, profile));
+    if (events.length > 12000) events = events.slice(-12000);
+    queueLiveRender();
+  }
+
+  async function pollLiveEvents() {
+    if (!liveMode) return;
+    try {
+      const response = await fetch(`${BRIDGE_URL}/api/events`, { cache: 'no-store' });
+      if (!response.ok) throw new Error('event polling failed');
+      const incoming = await response.json();
+      const fresh = incoming.filter((event) => event.run_id === liveRunId && Number(event.event_sequence || event.event_id) > lastLiveEventId);
+      fresh.forEach(acceptLiveEvent);
+      const statusResponse = await fetch(`${BRIDGE_URL}/api/run/status`, { cache: 'no-store' });
+      if (statusResponse.ok) updateRunStatus(await statusResponse.json());
+    } catch (error) {
+      setBridgeState(false, 'Bridge disconnected');
+    } finally {
+      livePollTimer = setTimeout(pollLiveEvents, 500);
+    }
+  }
+
+  async function startLiveRun() {
+    const error = runFormError();
+    if (error) return showToast(error);
+    const nextProfile = selectedRunProfile();
+    profile = nextProfile;
+    liveMode = true;
+    liveRunId = null;
+    events = [];
+    selectedSensors = runSensors.slice();
+    dataLabel = `Live ${profile.label} run · waiting for events`;
+    sourceLabel = 'LIVE MQTT';
+    render();
+    $('startRunButton').dataset.running = 'true';
+    updateRunButtons();
+    connectEventStream();
+    try {
+      const response = await fetch(`${BRIDGE_URL}/api/run/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        profile: profile.id,
+        scenario: $('runScenario').value,
+        sensors: runSensors,
+        interval_ms: Number($('runInterval').value),
+        max_events: Number($('runMaxEvents').value),
+        save_to_database: $('saveToDatabase').checked,
+        min_temp: profile.lowerLimitC,
+        max_temp: profile.upperLimitC,
+      }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not start live run.');
+      liveRunId = result.run_id;
+      updateRunStatus(result);
+      showToast('Live run started.');
+    } catch (error) {
+      liveMode = false;
+      liveRunId = null;
+      clearTimeout(livePollTimer);
+      if (eventSource) eventSource.close();
+      $('startRunButton').dataset.running = 'false';
+      updateRunButtons();
+      showToast(error.message);
+    }
+  }
+
+  async function stopLiveRun() {
+    clearTimeout(livePollTimer);
+    try { await fetch(`${BRIDGE_URL}/api/run/stop`, { method: 'POST' }); } catch (error) { showToast('Could not reach the bridge to stop the run.'); }
+  }
+
   $('analyticsTab').addEventListener('click', () => setTab('analytics'));
   $('rawTab').addEventListener('click', () => setTab('raw'));
   $('rawSensorFilter').addEventListener('change', renderRaw);
   $('importButton').addEventListener('click', () => $('fileInput').click());
   $('fileInput').addEventListener('change', (event) => loadFile(event.target.files[0]));
   $('resetButton').addEventListener('click', () => {
+    liveMode = false;
+    liveRunId = null;
+    clearTimeout(livePollTimer);
+    if (eventSource) eventSource.close();
+    profile = data.PROFILE;
     events = data.createDemoEvents();
     selectedSensors = DEFAULT_SENSORS.slice();
     dataLabel = 'Using built-in demo events';
@@ -254,12 +448,27 @@
     render();
     showToast('Demo data restored.');
   });
+  const syncRunProfile = () => { profile = selectedRunProfile(); updateRunButtons(); render(); };
+  $('runProfile').addEventListener('change', syncRunProfile);
+  $('runScenario').addEventListener('change', updateRunButtons);
+  $('runInterval').addEventListener('input', updateRunButtons);
+  $('runMaxEvents').addEventListener('input', updateRunButtons);
+  $('runMinTemp').addEventListener('input', syncRunProfile);
+  $('runMaxTemp').addEventListener('input', syncRunProfile);
+  $('selectAllPods').addEventListener('click', () => { runSensors = ALL_PODS.slice(); renderRunPods(); updateRunButtons(); });
+  $('clearPods').addEventListener('click', () => { runSensors = []; renderRunPods(); updateRunButtons(); });
+  $('startRunButton').addEventListener('click', startLiveRun);
+  $('stopRunButton').addEventListener('click', stopLiveRun);
   $('exportButton').addEventListener('click', () => {
     const visible = events.filter((event) => selectedSensors.includes(event.sensor_name));
     download('vaccine-dashboard-view.csv', data.toCsv(visible), 'text/csv;charset=utf-8');
     showToast(`Exported ${visible.length.toLocaleString()} selected-sensor events.`);
   });
 
-  global.VaccineDashboard = { getEvents: () => events.slice(), render };
+  global.VaccineDashboard = { getEvents: () => events.slice(), render, normalizeEvent: data.normalizeEvent };
+  renderRunPods();
+  $('runProgress').textContent = 'Ready to run.';
+  refreshBridge();
+  bridgePollTimer = setInterval(refreshBridge, 4000);
   render();
 })(typeof globalThis === 'undefined' ? this : globalThis);
