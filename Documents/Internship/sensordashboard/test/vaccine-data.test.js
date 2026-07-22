@@ -85,14 +85,15 @@ test('demo events visibly include both sides of the safety range', () => {
   assert.equal(summaries.find((sensor) => sensor.sensorName === 'Pod11').status, 'TOO_WARM');
 });
 
-test('chart height grows with the number of selected Pods', () => {
-  assert.ok(getChartHeight(6) > getChartHeight(1));
-  assert.equal(getChartHeight(0), getChartHeight(1));
+test('chart height stays fixed for the best-fit analytics view', () => {
+  assert.equal(getChartHeight(1), 340);
+  assert.equal(getChartHeight(6), getChartHeight(1));
+  assert.equal(getChartHeight(20), getChartHeight(1));
 });
 
 test('classifies Moderna events using custom bounds', () => {
   const profile = getProfile('moderna', { min_temp: -35, max_temp: -25 });
-  assert.equal(normalizeEvent({ sensor_name: 'Pod4', timestamp: '2026-07-22T10:00:00Z', temperature_c: -30 }, profile).status, 'STABLE');
+  assert.equal(normalizeEvent({ sensor_name: 'Pod4', timestamp: '2026-07-22T10:00:00Z', temperature_c: -32.5 }, profile).status, 'STABLE');
   assert.equal(normalizeEvent({ sensor_name: 'Pod4', timestamp: '2026-07-22T10:00:01Z', temperature_c: -36 }, profile).status, 'TOO_COLD');
   assert.equal(normalizeEvent({ sensor_name: 'Pod4', timestamp: '2026-07-22T10:00:02Z', temperature_c: -24 }, profile).status, 'TOO_WARM');
 });

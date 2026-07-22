@@ -31,7 +31,16 @@ SENSOR_PATTERN = re.compile(r"^Pod(?:[1-9]|1[0-9]|20)$", re.IGNORECASE)
 
 PROFILES = {
     "pfizer_ultralow": {"id": "pfizer_ultralow", "label": "Pfizer ultralow", "target_c": -78.5, "min_c": -80.0, "max_c": -60.0},
-    "moderna": {"id": "moderna", "label": "Moderna", "target_c": -30.0, "min_c": None, "max_c": None},
+    "moderna": {
+        "id": "moderna",
+        "label": "Moderna / Spikevax",
+        "target_c": -32.5,
+        "min_c": None,
+        "max_c": None,
+        "suggested_min_c": -50.0,
+        "suggested_max_c": -15.0,
+        "source_url": "https://products.modernatx.com/spikevaxpro/dosing-and-administration",
+    },
 }
 
 
@@ -220,7 +229,7 @@ class DashboardState:
                 self._open_database()
             self.events.clear()
             run_id = uuid.uuid4().hex[:12]
-            self.run = {"running": True, "state": "running", "run_id": run_id, "message": f"Starting {len(request['sensors'])} Pods…", "sensors": request["sensors"], "requested_events": len(request["sensors"]) * request["max_events"], "events_received": 0}
+            self.run = {"running": True, "state": "running", "run_id": run_id, "message": f"Starting {len(request['sensors'])} Pods…", "sensors": request["sensors"], "requested_events": len(request["sensors"]) * request["max_events"], "events_received": 0, "profile_id": request["profile"]["id"], "min_temp": request["profile"]["min_c"], "max_temp": request["profile"]["max_c"]}
             self.broadcast({"type": "run_status", **self.run})
             try:
                 for sensor in request["sensors"]:

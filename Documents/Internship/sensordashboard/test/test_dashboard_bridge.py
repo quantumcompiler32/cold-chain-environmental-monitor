@@ -35,7 +35,7 @@ class DashboardBridgeTests(unittest.TestCase):
         bridge.validate_start_request(base_request(profile="moderna"))
 
     result = bridge.validate_start_request(base_request(profile="moderna", min_temp=-35, max_temp=-25))
-    assert result["profile"]["target_c"] == -30.0
+    assert result["profile"]["target_c"] == -32.5
     assert result["profile"]["min_c"] == -35.0
 
   def test_rejects_invalid_run_controls(self):

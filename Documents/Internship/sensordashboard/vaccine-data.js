@@ -13,8 +13,8 @@
 
   const STATUS_ORDER = ['STABLE', 'ACCEPTABLE', 'TOO_COLD', 'TOO_WARM'];
   const PROFILE_DEFINITIONS = {
-    pfizer_ultralow: { id: 'pfizer_ultralow', label: 'Pfizer ultralow', targetC: -78.5, lowerLimitC: -80, upperLimitC: -60 },
-    moderna: { id: 'moderna', label: 'Moderna', targetC: -30, lowerLimitC: null, upperLimitC: null },
+    pfizer_ultralow: { id: 'pfizer_ultralow', label: 'Pfizer ultralow', targetC: -78.5, lowerLimitC: -80, upperLimitC: -60, guidance: 'Simulation profile based on the Pfizer ultralow cold-chain range.', sourceUrl: '' },
+    moderna: { id: 'moderna', label: 'Moderna / Spikevax', targetC: -32.5, lowerLimitC: -50, upperLimitC: -15, guidance: 'Suggested frozen-storage bounds from Moderna Spikevax guidance; editable for your simulation.', sourceUrl: 'https://products.modernatx.com/spikevaxpro/dosing-and-administration' },
   };
 
   function getProfile(id = PROFILE.id, bounds = {}) {
@@ -133,8 +133,7 @@
   }
 
   function getChartHeight(sensorCount) {
-    const count = Math.max(1, Math.min(12, Number(sensorCount) || 1));
-    return Math.min(720, 220 + count * 42);
+    return 340;
   }
 
   function parseTemperatureEvents(input, format, options = {}) {
