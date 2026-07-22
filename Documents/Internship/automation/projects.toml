@@ -1,0 +1,10 @@
+# Add future projects here. One project stays active for the normal dashboard.
+
+version = 1
+
+[[project]]
+id = "bytesmart"
+title = "ByteSmart"
+source_roots = ["/Users/mokshjoshi/Documents/EverythingLife/Internship"]
+rules_file = "bytesmart_vault_rules.toml"
+active = true

@@ -30,7 +30,8 @@ ByteSmart work currently exists across local files, reports, email, Drive, code,
 - The vault works with AI disabled.
 - Daily refreshes consume no model tokens unless AI is explicitly enabled.
 - A rebuild previews changes before applying them and never alters original source files.
-- ByteSmart is the only visible project identity. Bitwise material is organized inside ByteSmart.
+- ByteSmart is the current visible project identity. Bitwise material is organized inside ByteSmart.
+- Future projects can be added without duplicating the vault architecture or mixing their sources into ByteSmart.
 
 ## Information architecture
 
@@ -45,6 +46,10 @@ The vault uses these seven visible branches:
 7. **Deliverables & Visuals** — reports, slides, diagrams, demos, dashboards, and their review status.
 
 Each branch has one landing page. Subfolders remain shallow and exist only when they make browsing easier. Branch pages are curated navigation hubs, not raw inventories.
+
+## Visual navigation
+
+The command center and branch hubs use a restrained color system so they are easier to scan without changing the content or adding visual clutter. Each branch keeps one stable accent: blue for Current Work, teal for Connected Sources, orange for System & Sensors, violet for Data Pipeline & Storage, green for Analysis & Models, amber for Findings & Decisions, and magenta for Deliverables & Visuals. Color supports headings, links, and navigation only; meaning must remain clear in plain text and work in any Obsidian theme.
 
 ## Navigation and graph rules
 
@@ -148,6 +153,16 @@ Local classification priority is:
 Local rules may not invent findings, summaries, or decisions.
 
 Categorization rules live in one readable, validated, versioned configuration file under `automation/`. Explicit metadata and overrides always win.
+
+## Scaling to other projects
+
+The vault starts with ByteSmart, but the automation is project-aware. A local project registry will define each project’s stable ID, display title, source roots, rule file, and active state.
+
+- Each project uses the same seven branches, note templates, source fields, review flow, and local refresh behavior.
+- Every note keeps a `project` field, so shared branch pages can filter and link to project-specific work without duplicating knowledge.
+- Local change detection is scoped to each project’s source roots. Adding a project does not cause a full rescan of unrelated projects or consume AI tokens.
+- ByteSmart stays the normal dashboard while it is the only active project. A portfolio or projects index is created only when a second project needs it.
+- A project may have its own rules file, but the validator and organizer code remain shared.
 
 ## Optional AI
 

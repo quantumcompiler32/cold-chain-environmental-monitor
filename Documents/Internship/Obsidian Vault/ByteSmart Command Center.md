@@ -7,6 +7,9 @@ created: 2026-07-21
 updated: 2026-07-21
 confidence: high
 review: false
+cssclasses:
+  - internship-dashboard
+  - bytesmart-dashboard
 ---
 
 # ByteSmart Command Center

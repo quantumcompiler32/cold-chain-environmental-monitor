@@ -33,3 +33,21 @@ python3 automation/vault_rules.py --check-rules automation/bytesmart_vault_rules
 ```
 
 This command uses only the Python standard library and makes no model calls.
+
+## Local refresh
+
+`projects.toml` lists each project’s source roots and rule file. Run a local-only refresh for the active project:
+
+```bash
+python3 automation/vault_refresh.py
+```
+
+To refresh a registered project by ID:
+
+```bash
+python3 automation/vault_refresh.py --project bytesmart
+```
+
+Refresh writes one current source registry and a meaningful activity log inside the vault. It does not copy, modify, or delete original source files, and it skips unchanged sources using local timestamps, file sizes, and hashes.
+
+To add a future project, add one `[[project]]` entry to `projects.toml` with its ID, title, source roots, rule file, and active state. The refresh code and note model stay shared.

@@ -7,7 +7,10 @@ This project organizes multiple connected projects in one Obsidian vault while k
 ### Vault concepts
 
 **Project**:
-A bounded body of work identified on every canonical note. The current and visible project is ByteSmart; Bitwise-related material belongs inside ByteSmart rather than forming a separate project or navigation layer.
+A bounded body of work identified on every canonical note. ByteSmart is the current project; Bitwise-related material belongs inside ByteSmart rather than forming a separate project or navigation layer. Future projects use the same vault model without mixing their notes into ByteSmart.
+
+**Project registry**:
+The local configuration that identifies each project, its title, source roots, rules file, and active state. It lets one vault and one refresh system support multiple projects without reprocessing unrelated material.
 
 **Branch**:
 One of the seven shared navigation areas: Current Work, Connected Sources, System & Sensors, Data Pipeline & Storage, Analysis & Models, Findings & Decisions, or Deliverables & Visuals.
@@ -165,7 +168,8 @@ Material retained for reference but removed from default active views.
 - Project and branch indexes are navigation hubs; evidence links must explain or support a note.
 - When a connected source changes, canonical notes are updated to the newest known version rather than accumulating historical summaries.
 - The seven branches are shared across projects; `project` metadata and project indexes provide project-specific views.
-- ByteSmart is the single visible project identity. Bitwise may appear as source or provenance metadata, but Bitwise material is organized inside ByteSmart and does not create a separate project, dashboard, or branch.
+- ByteSmart is the current visible project identity. Bitwise may appear as source or provenance metadata, but Bitwise material is organized inside ByteSmart and does not create a separate project, dashboard, or branch.
+- Future projects use their own project metadata, source roots, rules, and project index while sharing the same seven branch model and local automation.
 - Automation may update managed sections and metadata, but not protected human-authored sections.
 - Protected sections are `Interpretation`, `Decision`, `Next Steps`, `Caveats`, and `Human Notes`.
 - New-note intake preserves the note body and never overwrites existing frontmatter without evidence and review.

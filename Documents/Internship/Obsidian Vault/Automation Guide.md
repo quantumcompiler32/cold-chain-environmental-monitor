@@ -34,6 +34,12 @@ Open [[Imported Internship Files]] after creating or receiving new work. Anythin
 
 ## ByteSmart vault rules
 
-The new seven-branch ByteSmart rules are stored in `automation/bytesmart_vault_rules.toml`. They can be validated locally without AI, but they are not connected to the automatic refresh yet.
+The seven-branch ByteSmart rules are stored in `automation/bytesmart_vault_rules.toml`. They can be validated locally without AI.
 
-The next automation slice will use those rules to update the ByteSmart branch pages, source registry, activity log, and Review queue while leaving the live source directory unchanged.
+The local refresh command now uses these rules to update the central source registry and meaningful activity log while leaving the live source directory unchanged:
+
+```bash
+python3 /Users/mokshjoshi/Documents/Internship/automation/vault_refresh.py
+```
+
+The existing login watcher still maintains the older `Artifacts` copies. It will be replaced only after the ByteSmart refresh workflow is fully verified.

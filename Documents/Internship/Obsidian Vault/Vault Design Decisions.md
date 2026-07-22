@@ -18,8 +18,9 @@ This note records the agreed design for the reusable connected-project vault. It
 
 ## Agreed structure
 
-- One vault organized under the single project identity ByteSmart.
+- One vault begins with ByteSmart and can expand to future projects without introducing a second automation system.
 - Bitwise-related material is included within ByteSmart and may appear as provenance metadata; it is not a separate project, dashboard, or branch.
+- Future projects receive their own metadata, source roots, rules, and project index while sharing the seven branches and the same local-first refresh system.
 - Seven shared branches:
   - [[Current Work]]
   - [[Connected Sources]]
