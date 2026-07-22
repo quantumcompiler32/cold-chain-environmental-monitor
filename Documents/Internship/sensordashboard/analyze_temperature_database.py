@@ -177,6 +177,32 @@ def run_analysis(
             printer,
         )
 
+        # This report keeps raw status counts separate from the measurement
+        # uncertainty interpretation. A borderline reading is not silently
+        # converted into TOO_COLD or TOO_WARM.
+        cursor.execute(
+            """
+            SELECT
+                COUNT(*) FILTER (WHERE uncertainty_status LIKE 'BORDERLINE%') AS borderline_count,
+                COUNT(*) FILTER (WHERE boundary_crossing) AS crossing_count,
+                COUNT(*) FILTER (
+                    WHERE ABS(temperature_c - storage_min_c) <= sensor_tolerance_c
+                       OR ABS(temperature_c - storage_max_c) <= sensor_tolerance_c
+                ) AS near_threshold_count,
+                ROUND(
+                    100.0 * COUNT(*) FILTER (WHERE boundary_crossing) /
+                    NULLIF(COUNT(*), 0), 2
+                ) AS crossing_percentage
+            FROM temperature_events;
+            """
+        )
+        borderline_count, crossing_count, near_threshold_count, crossing_percentage = cursor.fetchone()
+        printer("\nUNCERTAINTY SUMMARY")
+        printer(f"Borderline readings: {borderline_count}")
+        printer(f"Readings crossing a storage boundary: {crossing_count}")
+        printer(f"Readings near a threshold (+/- sensor tolerance): {near_threshold_count}")
+        printer(f"Boundary-crossing percentage: {format_value(crossing_percentage)}%")
+
         # Grouping by sensor helps compare different source channels.
         cursor.execute(
             """

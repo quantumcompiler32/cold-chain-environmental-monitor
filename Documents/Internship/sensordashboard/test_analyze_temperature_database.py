@@ -12,6 +12,7 @@ class FakeCursor:
             (3, 2, "2020-12-16 11:25:54", "2020-12-16 11:26:43", -81.57, -60.25, -75.91, 3, 1, 0),
             [("pfizer_ultralow", "failure", 3), ("pfizer_ultralow", "normal", 0)],
             [("ACCEPTABLE", 2, 66.67), ("TOO_COLD", 1, 33.33)],
+            (1, 1, 2, 33.33),
             [("Pod1", 2, -81.57, -70.25, -75.91), ("Pod2", 1, -60.25, -60.25, -60.25)],
             [("Pod1", -81.57, "2020-12-16 11:26:43", "TOO_COLD")],
             [("Pod2", -60.25, "2020-12-16 11:25:54", "ACCEPTABLE")],
@@ -57,6 +58,8 @@ class AnalysisReportTests(unittest.TestCase):
         self.assertIn("33.33%", report)
         self.assertIn("Pod1", report)
         self.assertIn("PROVENANCE SUMMARY", report)
+        self.assertIn("UNCERTAINTY SUMMARY", report)
+        self.assertIn("Boundary-crossing percentage: 33.33%", report)
         self.assertIn("failure", report)
         self.assertIn("5 COLDEST READINGS", report)
 

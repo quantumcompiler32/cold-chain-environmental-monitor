@@ -14,6 +14,8 @@ from datetime import datetime
 import paho.mqtt.client as mqtt
 import psycopg
 
+from temperature_uncertainty import enrich_event
+
 # MQTT settings
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
@@ -35,6 +37,14 @@ REQUIRED_FIELDS = {
     "scenario",
     "temperature_c",
     "status",
+    "sensor_tolerance_c",
+    "temperature_min_possible_c",
+    "temperature_max_possible_c",
+    "storage_min_c",
+    "storage_max_c",
+    "uncertainty_status",
+    "boundary_crossing",
+    "measurement_confidence",
 }
 
 
@@ -87,7 +97,12 @@ def verify_database():
                 """
             )
             columns = {row[0] for row in cursor.fetchall()}
-            missing_columns = {"vaccine_type", "scenario"} - columns
+            missing_columns = {
+                "vaccine_type", "scenario", "sensor_tolerance_c",
+                "temperature_min_possible_c", "temperature_max_possible_c",
+                "storage_min_c", "storage_max_c", "uncertainty_status",
+                "boundary_crossing", "measurement_confidence",
+            } - columns
             if missing_columns:
                 missing = ", ".join(sorted(missing_columns))
                 raise RuntimeError(
@@ -116,12 +131,31 @@ def validate_event(data):
 
     try:
         data["temperature_c"] = float(data["temperature_c"])
+        data["sensor_tolerance_c"] = float(data["sensor_tolerance_c"])
+        data["temperature_min_possible_c"] = float(data["temperature_min_possible_c"])
+        data["temperature_max_possible_c"] = float(data["temperature_max_possible_c"])
+        data["storage_min_c"] = float(data["storage_min_c"])
+        data["storage_max_c"] = float(data["storage_max_c"])
     except (TypeError, ValueError) as exc:
-        raise ValueError("temperature_c must be numeric.") from exc
+        raise ValueError("temperature and uncertainty fields must be numeric.") from exc
 
-    for field in REQUIRED_FIELDS - {"temperature_c"}:
+    for field in REQUIRED_FIELDS - {
+        "temperature_c", "sensor_tolerance_c", "temperature_min_possible_c",
+        "temperature_max_possible_c", "storage_min_c", "storage_max_c",
+        "boundary_crossing",
+    }:
         if not isinstance(data[field], str) or not data[field].strip():
             raise ValueError(f"{field} must be a non-empty string.")
+
+    if not isinstance(data["boundary_crossing"], bool):
+        raise ValueError("boundary_crossing must be boolean.")
+    expected = enrich_event(data, data["storage_min_c"], data["storage_max_c"])
+    for field in (
+        "sensor_tolerance_c", "temperature_min_possible_c",
+        "temperature_max_possible_c", "uncertainty_status", "boundary_crossing",
+    ):
+        if data[field] != expected[field]:
+            raise ValueError(f"{field} does not match temperature_c and uncertainty.")
 
     return data
 
@@ -141,8 +175,16 @@ def write_event_to_database(data):
             scenario,
             temperature_c,
             status
+            ,sensor_tolerance_c
+            ,temperature_min_possible_c
+            ,temperature_max_possible_c
+            ,storage_min_c
+            ,storage_max_c
+            ,uncertainty_status
+            ,boundary_crossing
+            ,measurement_confidence
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id;
     """
 
@@ -159,6 +201,14 @@ def write_event_to_database(data):
                     data["scenario"],
                     data["temperature_c"],
                     data["status"],
+                    data["sensor_tolerance_c"],
+                    data["temperature_min_possible_c"],
+                    data["temperature_max_possible_c"],
+                    data["storage_min_c"],
+                    data["storage_max_c"],
+                    data["uncertainty_status"],
+                    data["boundary_crossing"],
+                    data["measurement_confidence"],
                 ),
             )
             inserted_id = cursor.fetchone()[0]
@@ -177,6 +227,8 @@ def print_event(data):
     print(f"Scenario:        {data['scenario']}")
     print(f"Temperature:     {data['temperature_c']:.2f}°C")
     print(f"Status:          {data['status']}")
+    print(f"Possible range:  {data['temperature_min_possible_c']:.2f}°C to {data['temperature_max_possible_c']:.2f}°C")
+    print(f"Uncertainty:     {data['uncertainty_status']}")
     print(f"Source time:     {data['source_timestamp']}")
     print(f"Event time:      {data['timestamp']}")
     print(f"Received locally:{datetime.now().isoformat(timespec='seconds')}")

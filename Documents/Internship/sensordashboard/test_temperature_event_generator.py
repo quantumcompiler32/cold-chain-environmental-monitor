@@ -9,6 +9,7 @@ from temperature_event_generator import (
     resolve_profile,
     transform_temperature,
 )
+from temperature_uncertainty import SENSOR_TOLERANCE_C, classify_uncertainty, possible_temperature_range
 
 
 class TemperatureEventGeneratorTests(unittest.TestCase):
@@ -37,6 +38,10 @@ class TemperatureEventGeneratorTests(unittest.TestCase):
         self.assertEqual(event["source_timestamp"], "2020-12-16T11:26:43")
         self.assertEqual(event["temperature_c"], -78.5)
         self.assertEqual(event["status"], "STABLE")
+        self.assertEqual(event["sensor_tolerance_c"], SENSOR_TOLERANCE_C)
+        self.assertEqual(event["temperature_min_possible_c"], -79.0)
+        self.assertEqual(event["temperature_max_possible_c"], -78.0)
+        self.assertEqual(event["uncertainty_status"], "WITHIN_RANGE")
 
     def test_pfizer_status_uses_the_paper_boundaries(self):
         # Test both inclusive boundaries and readings just outside them.
@@ -80,6 +85,18 @@ class TemperatureEventGeneratorTests(unittest.TestCase):
         # The source CSV is a Pfizer experiment, so the generator translates
         # its deviation rather than replaying roughly -80°C as Moderna data.
         self.assertAlmostEqual(adapt_source_temperature(-77.5, moderna), -31.5)
+
+    def test_uncertainty_examples_match_the_documented_policy(self):
+        self.assertEqual(possible_temperature_range(-80.2), (-80.7, -79.7))
+        self.assertEqual(classify_uncertainty(-80.2, -80, -60)["uncertainty_status"], "BORDERLINE_COLD")
+        self.assertTrue(classify_uncertainty(-80.2, -80, -60)["boundary_crossing"])
+        self.assertEqual(classify_uncertainty(-79.8, -80, -60)["uncertainty_status"], "BORDERLINE_COLD")
+        self.assertEqual(classify_uncertainty(-81.0, -80, -60)["uncertainty_status"], "CLEARLY_TOO_COLD")
+
+    def test_non_outlier_events_keep_the_selected_profile_baseline(self):
+        moderna = resolve_profile("moderna", min_temp=-50, max_temp=-15)
+        value = transform_temperature(-78.5, moderna, "outlier", 1, 20)
+        self.assertAlmostEqual(value, -32.5)
 
 
 if __name__ == "__main__":

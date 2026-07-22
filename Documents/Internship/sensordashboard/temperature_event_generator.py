@@ -21,6 +21,8 @@ from typing import Any
 import pandas as pd
 import paho.mqtt.client as mqtt
 
+from temperature_uncertainty import SENSOR_TOLERANCE_C, classify_uncertainty
+
 
 # The local Mosquitto broker and topic shared with temperature_subscriber.py.
 MQTT_BROKER = "localhost"
@@ -121,6 +123,11 @@ def parse_arguments() -> argparse.Namespace:
         "--sensor",
         default=DEFAULT_SENSOR,
         help=f"Temperature column, for example Pod1 or Ambient (default: {DEFAULT_SENSOR}).",
+    )
+    parser.add_argument(
+        "--csv-file",
+        default=CSV_FILE,
+        help="CSV file to replay; defaults to the bundled experiment file.",
     )
     parser.add_argument(
         "--interval-ms",
@@ -231,7 +238,7 @@ def transform_temperature(
         # Every twentieth event is an intentional exception. Alternating the
         # direction gives the analysis report both cold and warm examples.
         if event_number % 20 != 0:
-            return source_temperature_c
+            return adapt_source_temperature(source_temperature_c, profile)
         outlier_number = event_number // 20
         if outlier_number % 2 == 1:
             return profile.min_c - OUTLIER_OFFSET_C
@@ -314,7 +321,7 @@ def make_event(
         event_number,
         total_events,
     )
-    return {
+    event = {
         "device_id": "vaccine_temperature_simulator",
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "source_timestamp": row["source_timestamp"].isoformat(),
@@ -324,6 +331,15 @@ def make_event(
         "temperature_c": round(temperature_c, 2),
         "status": classify_temperature(temperature_c, profile),
     }
+    event.update(
+        classify_uncertainty(
+            event["temperature_c"],
+            profile.min_c,
+            profile.max_c,
+            SENSOR_TOLERANCE_C,
+        )
+    )
+    return event
 
 
 def main() -> int:
@@ -335,7 +351,7 @@ def main() -> int:
             min_temp=args.min_temp,
             max_temp=args.max_temp,
         )
-        sensor_name, readings = load_temperature_data(Path(CSV_FILE), args.sensor)
+        sensor_name, readings = load_temperature_data(Path(args.csv_file), args.sensor)
         client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.loop_start()

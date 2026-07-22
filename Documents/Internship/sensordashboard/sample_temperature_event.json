@@ -6,5 +6,13 @@
   "vaccine_type": "pfizer_ultralow",
   "scenario": "normal",
   "temperature_c": -81.57,
-  "status": "TOO_COLD"
+  "status": "TOO_COLD",
+  "sensor_tolerance_c": 0.5,
+  "temperature_min_possible_c": -82.07,
+  "temperature_max_possible_c": -81.07,
+  "storage_min_c": -80.0,
+  "storage_max_c": -60.0,
+  "uncertainty_status": "CLEARLY_TOO_COLD",
+  "boundary_crossing": false,
+  "measurement_confidence": "Approximately +/-0.5 C Type-T thermocouple accuracy"
 }

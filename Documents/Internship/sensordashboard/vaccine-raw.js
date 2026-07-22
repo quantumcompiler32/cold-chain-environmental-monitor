@@ -8,6 +8,7 @@
   let sourceLabel = 'LOCAL';
   let liveMode = false;
   let liveRunId = null;
+  let renderQueued = false;
   let toastTimer;
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
@@ -37,6 +38,14 @@
     $('rawSource').textContent = sourceLabel;
     $('rawMode').textContent = liveMode ? 'LIVE' : sourceLabel === 'LOCAL' ? 'LOCAL' : 'FILE';
     $('rawStatusText').textContent = liveMode ? `Live ${profile.label} events` : `${sourceLabel} event data`;
+    if ($('rawAutoscroll').checked) $('rawStream').scrollTop = 0;
+  }
+
+  function queueRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    const draw = () => { renderQueued = false; render(); };
+    if (typeof global.requestAnimationFrame === 'function') global.requestAnimationFrame(draw); else setTimeout(draw, 16);
   }
 
   function applyLiveRun(status) {
@@ -45,17 +54,18 @@
     events = [];
     profile = data.getProfile(status.profile_id || 'pfizer_ultralow', { min_temp: status.min_temp, max_temp: status.max_temp });
     sourceLabel = 'LIVE';
-    render();
+    queueRender();
   }
 
   function acceptLiveEvent(event) {
     if (!liveMode || !liveRunId || event.run_id !== liveRunId) return;
     events.push(data.normalizeEvent(event, profile));
     if (events.length > 12000) events = events.slice(-12000);
-    render();
+    queueRender();
   }
 
   $('rawSensorFilter').addEventListener('change', render);
+  $('rawAutoscroll').addEventListener('change', render);
   $('importButton').addEventListener('click', () => $('fileInput').click());
   $('fileInput').addEventListener('change', (event) => {
     const file = event.target.files[0];
@@ -82,7 +92,7 @@
     events = data.createDemoEvents();
     sourceLabel = 'LOCAL';
     render();
-    showToast('Local demo data restored.');
+    showToast('Local data restored.');
   });
 
   render();

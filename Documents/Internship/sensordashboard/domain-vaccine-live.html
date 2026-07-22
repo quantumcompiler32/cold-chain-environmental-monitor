@@ -29,22 +29,24 @@
 
     <section class="card run-card" aria-label="Live event runner controls">
       <div class="card-heading">
-        <div><div class="card-title">Simulation controls</div><div class="card-sub">Each selected Pod emits a bounded 20-event run. Select Pods here; the analytics page only displays the results.</div></div>
+        <div><div class="card-title">Simulation controls</div><div class="card-sub">Each selected Pod emits the number of events you set for every selected scenario.</div></div>
         <span class="bridge-status offline" id="bridgeStatus"><i></i>Bridge offline</span>
       </div>
       <div class="runner-grid">
         <label>Profile<select id="runProfile"><option value="pfizer_ultralow">Pfizer ultralow</option><option value="moderna">Moderna / Spikevax</option></select></label>
-        <label>Scenario<select id="runScenario"><option value="outlier" selected>Outlier — occasional breach</option><option value="normal">Normal — source pattern</option><option value="failure">Failure — sustained warm excursion</option><option value="recovery">Recovery — returns to target</option></select></label>
+        <fieldset class="scenario-field"><legend>Scenarios</legend><label class="check-label"><input type="checkbox" name="runScenario" value="normal"> Normal</label><label class="check-label"><input type="checkbox" name="runScenario" value="outlier" checked> Outlier</label><label class="check-label"><input type="checkbox" name="runScenario" value="failure"> Failure</label><label class="check-label"><input type="checkbox" name="runScenario" value="recovery"> Recovery</label></fieldset>
         <label>Interval (ms)<input id="runInterval" type="number" min="50" step="50" value="500"></label>
-        <div class="runner-summary"><span class="profile-label">Run size</span><strong>20 events / selected Pod</strong><small>Fixed to keep simulations bounded and easy to compare.</small></div>
+        <label>Events / scenario / Pod<input id="runEventCount" type="number" min="1" max="5000" step="1" value="20"></label>
+        <div class="runner-summary"><span class="profile-label">Run size</span><strong id="runSizeSummary">20 events / selected Pod</strong><small>Multiple scenarios multiply the total so each comparison has the same number of readings.</small></div>
         <div class="runner-bounds runner-wide" id="customBoundsFields" hidden>
           <label>Suggested minimum (°C)<input id="runMinTemp" type="number" step="0.1"></label>
           <label>Suggested maximum (°C)<input id="runMaxTemp" type="number" step="0.1"></label>
         </div>
       </div>
-      <div class="scenario-guidance" id="scenarioGuidance">Adds an intentional threshold breach on the final event of this 20-event run.</div>
+      <div class="scenario-guidance" id="scenarioGuidance">Select one or more scenarios to compare them in the same run.</div>
       <div class="profile-guidance" id="profileGuidance">Pfizer ultralow simulation range. Select Moderna / Spikevax to edit its suggested bounds.</div>
       <div class="pod-run-picker"><span class="runner-label">Pods</span><div id="runPodPicker" class="run-pod-picker"></div><button class="button small" id="selectAllPods" type="button">Select all</button><button class="button small" id="clearPods" type="button">Clear</button></div>
+      <div class="source-upload"><span class="runner-label">CSV source</span><input id="csvSourceInput" type="file" accept=".csv,text/csv"><button class="button small" id="uploadSourceButton" type="button">Upload CSV for replay</button><span id="csvSourceStatus">Using the bundled local experiment</span></div>
       <div class="runner-footer"><label class="check-label"><input id="saveToDatabase" type="checkbox"> Save live events to PostgreSQL</label><span class="run-progress" id="runProgress">Checking the bridge…</span><button class="button primary" id="startRunButton" type="button" disabled>Start live run</button><button class="button secondary" id="stopRunButton" type="button" disabled>Stop</button></div>
     </section>
 
@@ -58,8 +60,8 @@
     <div class="live-next-step"><strong>Next:</strong> open <a href="domain-vaccine.html">Analytics</a> to watch the selected Pods update every chart and KPI, or open <a href="domain-vaccine-raw.html">Raw events</a> to inspect the event text.</div>
   </main>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="vaccine-data.js?v=live-page-1"></script>
-  <script src="vaccine-bridge.js?v=live-page-1"></script>
-  <script src="vaccine-live.js?v=live-page-1"></script>
+  <script src="vaccine-data.js?v=live-page-2"></script>
+  <script src="vaccine-bridge.js?v=live-page-2"></script>
+  <script src="vaccine-live.js?v=live-page-2"></script>
 </body>
 </html>

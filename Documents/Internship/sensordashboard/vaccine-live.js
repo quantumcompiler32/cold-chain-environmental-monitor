@@ -8,7 +8,7 @@
   const DEFAULT_MAX_EVENTS = 20;
   const SCENARIO_HELP = {
     normal: 'Replays the source pattern without injecting an excursion.',
-    outlier: 'Adds an intentional threshold breach on the final event of this 20-event run.',
+    outlier: 'Adds an intentional threshold breach on every twentieth event.',
     failure: 'Holds every event above the selected maximum to model sustained protection loss.',
     recovery: 'Starts above the selected maximum and moves toward the profile target across the run.',
   };
@@ -16,6 +16,8 @@
   let profile = data.getProfile('pfizer_ultralow');
   let bridgeOnline = false;
   let running = false;
+  let sourceFileId = null;
+  let sourceFileName = null;
   let toastTimer;
 
   const $ = (id) => document.getElementById(id);
@@ -58,7 +60,16 @@
   }
 
   function renderScenarioHelp() {
-    $('scenarioGuidance').textContent = SCENARIO_HELP[$('runScenario').value] || '';
+    const selected = selectedScenarios();
+    $('scenarioGuidance').textContent = selected.length
+      ? selected.map((scenario) => SCENARIO_HELP[scenario]).join(' ')
+      : 'Select at least one scenario.';
+    const count = Number($('runEventCount').value) || DEFAULT_MAX_EVENTS;
+    $('runSizeSummary').textContent = `${count} events × ${selected.length || 0} scenario${selected.length === 1 ? '' : 's'} / selected Pod`;
+  }
+
+  function selectedScenarios() {
+    return Array.from(document.querySelectorAll('input[name="runScenario"]:checked')).map((input) => input.value);
   }
 
   function renderPods() {
@@ -74,6 +85,8 @@
   function formError() {
     if (!selectedPods.length) return 'Select at least one Pod.';
     if (!Number.isInteger(Number($('runInterval').value)) || Number($('runInterval').value) < 50) return 'Interval must be at least 50 ms.';
+    if (!selectedScenarios().length) return 'Select at least one scenario.';
+    if (!Number.isInteger(Number($('runEventCount').value)) || Number($('runEventCount').value) < 1 || Number($('runEventCount').value) > 5000) return 'Events per scenario must be between 1 and 5000.';
     if (profile.id !== 'moderna') return '';
     const min = Number($('runMinTemp').value);
     const max = Number($('runMaxTemp').value);
@@ -110,11 +123,14 @@
     try {
       const result = await bridge.request('/api/run/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
         profile: profile.id,
-        scenario: $('runScenario').value,
+        scenarios: selectedScenarios(),
+        scenario: selectedScenarios()[0],
         sensors: selectedPods,
         interval_ms: Number($('runInterval').value),
-        max_events: DEFAULT_MAX_EVENTS,
+        max_events: Number($('runEventCount').value),
         save_to_database: $('saveToDatabase').checked,
+        source_file_id: sourceFileId,
+        source_file_name: sourceFileName,
         min_temp: profile.id === 'moderna' ? Number($('runMinTemp').value) : null,
         max_temp: profile.id === 'moderna' ? Number($('runMaxTemp').value) : null,
       }) });
@@ -122,8 +138,35 @@
       showToast('Live run started.');
     } catch (error) {
       running = false;
+      if (error.message.includes('CSV upload')) {
+        sourceFileId = null;
+        sourceFileName = null;
+        $('csvSourceStatus').textContent = 'Using the bundled local experiment';
+      }
       updateButtons();
       showToast(error.message);
+    }
+  }
+
+  async function uploadSource() {
+    const file = $('csvSourceInput').files[0];
+    if (!file) return showToast('Choose a CSV file first.');
+    if (!bridgeOnline) return showToast('Connect the bridge before uploading a CSV.');
+    $('uploadSourceButton').disabled = true;
+    $('csvSourceStatus').textContent = `Uploading ${file.name}…`;
+    try {
+      const result = await bridge.request('/api/run/source', { method: 'POST', headers: { 'Content-Type': 'text/csv', 'X-Filename': file.name }, body: file });
+      sourceFileId = result.source_file_id;
+      sourceFileName = result.filename;
+      $('csvSourceStatus').textContent = `${result.filename} ready (${Number(result.bytes).toLocaleString()} bytes)`;
+      showToast('CSV ready for the next run.');
+    } catch (error) {
+      sourceFileId = null;
+      sourceFileName = null;
+      $('csvSourceStatus').textContent = 'Using the bundled local experiment';
+      showToast(error.message);
+    } finally {
+      $('uploadSourceButton').disabled = false;
     }
   }
 
@@ -132,17 +175,20 @@
   }
 
   $('runProfile').addEventListener('change', syncProfile);
-  $('runScenario').addEventListener('change', () => { renderScenarioHelp(); updateButtons(); });
+  document.querySelectorAll('input[name="runScenario"]').forEach((input) => input.addEventListener('change', () => { renderScenarioHelp(); updateButtons(); }));
   $('runInterval').addEventListener('input', updateButtons);
+  $('runEventCount').addEventListener('input', () => { renderScenarioHelp(); updateButtons(); });
   $('runMinTemp').addEventListener('input', updateButtons);
   $('runMaxTemp').addEventListener('input', updateButtons);
   $('selectAllPods').addEventListener('click', () => { selectedPods = ALL_PODS.slice(); renderPods(); updateButtons(); });
   $('clearPods').addEventListener('click', () => { selectedPods = []; renderPods(); updateButtons(); });
   $('startRunButton').addEventListener('click', startRun);
   $('stopRunButton').addEventListener('click', stopRun);
+  $('uploadSourceButton').addEventListener('click', uploadSource);
 
   renderPods();
   renderProfile();
+  renderScenarioHelp();
   const observer = bridge.createObserver({
     onHealth: (health) => setBridgeState(Boolean(health.mqtt_connected), health.mqtt_connected ? 'Bridge connected' : 'Bridge online · MQTT offline'),
     onStatus: updateStatus,

@@ -6,14 +6,16 @@ Open `index.html` and select **Vaccine Cold Chain**. The page is labelled `DEMO 
 
 - Pfizer ultralow profile: target `−78.5°C`, acceptable range `−80°C` to `−60°C`.
 - All `Pod1`–`Pod20` package sensors in the overview.
-- A readable fixed-scale trend chart with sensor selection.
+- A readable focused-axis trend chart with sensor selection.
+- A focused trend axis that makes small line variation visible without changing the stored values.
 - Temperature, status, excursion/recovery, scenario, and replay-provenance visualizations.
 - Dedicated raw-event page with a sensor filter and readable JSON event text.
-- Dedicated live-runner page; the run length is fixed at 20 events per selected Pod so Pod selection stays the only device choice.
+- Dedicated live-runner page with variable events per Pod/scenario, multiple scenarios in one run, Stop at any time, and CSV upload for the next replay.
 - Local CSV/JSON loading for `temperature_events_export.csv`, the wide `Test1_TempCO2O2.csv` experiment file, or JSON temperature events.
 - CSV export for the sensors currently selected in the trend chart.
 - Simulation-focused alerts that explain generated out-of-range behavior without clinical review actions.
 - [SCENARIOS.md](SCENARIOS.md), which explains each scenario, profile bounds, data flow, and limitations.
+- [DASHBOARD_GUIDE.md](DASHBOARD_GUIDE.md), which explains what each visualization answers and its limitation.
 
 ## Data flow
 
@@ -28,13 +30,17 @@ The page uses the same event vocabulary as the temperature IoT project:
   "vaccine_type": "pfizer_ultralow",
   "scenario": "normal",
   "temperature_c": -78.4,
-  "status": "STABLE"
+  "status": "STABLE",
+  "sensor_tolerance_c": 0.5,
+  "temperature_min_possible_c": -78.9,
+  "temperature_max_possible_c": -77.9,
+  "uncertainty_status": "WITHIN_RANGE"
 }
 ```
 
 The dashboard starts with deterministic built-in demo events so it works when `index.html` is opened directly. The demo includes an active too-cold Pod and an active too-warm Pod so the dashboard does not falsely present an all-clear state. Use **Load CSV / JSON** to load a file from the temperature IoT project. The importer accepts both the event-shaped export and the experiment's wide `date,time,Pod1,…` format, converts the experiment's Fahrenheit Pod values to Celsius, and samples very large files to keep the browser responsive. The data adapter in `vaccine-data.js` derives the status from the documented Pfizer profile rather than trusting a stale status field.
 
-The browser pages use a local API/MQTT adapter for optional live runs. Analytics stays focused on visualizations, while `domain-vaccine-live.html` owns the controls and `domain-vaccine-raw.html` owns imports/raw event text. The pages deliberately do not connect directly to PostgreSQL or make a clinical disposition automatically.
+The browser pages use a local API/MQTT adapter for optional live runs. Analytics stays focused on visualizations, while `domain-vaccine-live.html` owns the controls and `domain-vaccine-raw.html` owns imports/raw event text. The pages deliberately do not connect directly to PostgreSQL or make a clinical disposition automatically. See [DASHBOARD_GUIDE.md](DASHBOARD_GUIDE.md) for the purpose and limit of each chart.
 
 ## Live event runner
 

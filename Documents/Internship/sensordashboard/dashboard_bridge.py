@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import queue
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import uuid
 from collections import deque
@@ -25,6 +27,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 import paho.mqtt.client as mqtt
+
+from temperature_uncertainty import enrich_event
 
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
@@ -78,9 +82,18 @@ def validate_start_request(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Request body must be a JSON object.")
     profile_id = str(payload.get("profile", "pfizer_ultralow"))
     profile = resolve_profile(profile_id, payload.get("min_temp"), payload.get("max_temp"))
-    scenario = str(payload.get("scenario", "outlier"))
-    if scenario not in SCENARIOS:
-        raise ValueError(f"Unknown scenario: {scenario}")
+    raw_scenarios = payload.get("scenarios")
+    if raw_scenarios is None:
+        raw_scenarios = [payload.get("scenario", "outlier")]
+    if not isinstance(raw_scenarios, list) or not raw_scenarios:
+        raise ValueError("Select at least one scenario.")
+    scenarios = []
+    for raw_scenario in raw_scenarios:
+        scenario = str(raw_scenario)
+        if scenario not in SCENARIOS:
+            raise ValueError(f"Unknown scenario: {scenario}")
+        if scenario not in scenarios:
+            scenarios.append(scenario)
     sensors = payload.get("sensors")
     if not isinstance(sensors, list) or not sensors:
         raise ValueError("Select at least one Pod.")
@@ -102,15 +115,23 @@ def validate_start_request(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("max_events must be between 1 and 5000.")
     return {
         "profile": profile,
-        "scenario": scenario,
+        "scenario": scenarios[0],
+        "scenarios": scenarios,
         "sensors": normalized_sensors,
         "interval_ms": interval_ms,
         "max_events": max_events,
         "save_to_database": bool(payload.get("save_to_database", False)),
+        "source_file_id": str(payload.get("source_file_id", "")) or None,
+        "source_file_name": str(payload.get("source_file_name", "")) or None,
     }
 
 
-def build_generator_command(request: dict[str, Any], sensor: str, generator_path: Path) -> list[str]:
+def build_generator_command(
+    request: dict[str, Any],
+    sensor: str,
+    generator_path: Path,
+    scenario: str | None = None,
+) -> list[str]:
     """Build one deterministic child-process command for a selected Pod."""
     # Each process gets one Pod so the run can finish only after every selected
     # child has emitted its requested bounded number of events.
@@ -120,12 +141,14 @@ def build_generator_command(request: dict[str, Any], sensor: str, generator_path
         str(generator_path),
         "--sensor", sensor,
         "--vaccine-type", profile["id"],
-        "--scenario", request["scenario"],
+        "--scenario", scenario or request["scenario"],
         "--interval-ms", str(request["interval_ms"]),
         "--max-events", str(request["max_events"]),
     ]
     if profile["id"] == "moderna":
         command.extend(["--min-temp", str(profile["min_c"]), "--max-temp", str(profile["max_c"])])
+    if request.get("source_path"):
+        command.extend(["--csv-file", str(request["source_path"])])
     return command
 
 
@@ -141,6 +164,8 @@ class DashboardState:
         self.event_sequence = 0
         self.run: dict[str, Any] = {"running": False, "state": "idle", "message": "Ready to run."}
         self.processes: dict[str, subprocess.Popen[str]] = {}
+        self.uploads: dict[str, Path] = {}
+        self.upload_directory = self.project_dir / ".dashboard_uploads"
         self.mqtt_connected = False
         self.db_connection = None
         self.mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
@@ -183,6 +208,13 @@ class DashboardState:
             # timestamps from being reordered in the browser.
             self.event_sequence += 1
             enriched = dict(event)
+            if "uncertainty_status" not in enriched:
+                profile = self.run.get("profile_id")
+                profile_data = PROFILES.get(profile or str(event.get("vaccine_type", "")))
+                minimum = self.run.get("min_temp") if profile_data and profile_data["min_c"] is None else (profile_data or {}).get("min_c")
+                maximum = self.run.get("max_temp") if profile_data and profile_data["max_c"] is None else (profile_data or {}).get("max_c")
+                if minimum is not None and maximum is not None and enriched.get("temperature_c") is not None:
+                    enriched = enrich_event(enriched, minimum, maximum)
             enriched["event_id"] = str(self.event_sequence)
             enriched["event_sequence"] = self.event_sequence
             enriched["received_at"] = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -202,11 +234,18 @@ class DashboardState:
         with self.db_connection.cursor() as cursor:
             cursor.execute(
                 """INSERT INTO temperature_events
-                (device_id, event_timestamp, source_timestamp, sensor_name, vaccine_type, scenario, temperature_c, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                (device_id, event_timestamp, source_timestamp, sensor_name, vaccine_type, scenario,
+                 temperature_c, status, sensor_tolerance_c, temperature_min_possible_c,
+                 temperature_max_possible_c, storage_min_c, storage_max_c, uncertainty_status,
+                 boundary_crossing, measurement_confidence)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (event.get("device_id"), event.get("timestamp"), event.get("source_timestamp") or None,
                  event.get("sensor_name"), event.get("vaccine_type"), event.get("scenario"),
-                 float(event.get("temperature_c")), event.get("status")),
+                 float(event.get("temperature_c")), event.get("status"),
+                 event.get("sensor_tolerance_c", 0.5), event.get("temperature_min_possible_c"),
+                 event.get("temperature_max_possible_c"), event.get("storage_min_c"),
+                 event.get("storage_max_c"), event.get("uncertainty_status"),
+                 bool(event.get("boundary_crossing", False)), event.get("measurement_confidence")),
             )
         self.db_connection.commit()
 
@@ -244,40 +283,47 @@ class DashboardState:
             # two browser tabs unable to start overlapping simulations.
             if self.run["running"]:
                 raise ValueError("A live run is already running.")
+            if request["source_file_id"]:
+                source_path = self.uploads.get(request["source_file_id"])
+                if source_path is None or not source_path.exists():
+                    raise ValueError("The selected CSV upload is no longer available. Upload it again.")
+                request["source_path"] = source_path
             if request["save_to_database"]:
                 self._open_database()
             self.events.clear()
             run_id = uuid.uuid4().hex[:12]
-            self.run = {"running": True, "state": "running", "run_id": run_id, "message": f"Starting {len(request['sensors'])} Pods…", "sensors": request["sensors"], "requested_events": len(request["sensors"]) * request["max_events"], "events_received": 0, "profile_id": request["profile"]["id"], "min_temp": request["profile"]["min_c"], "max_temp": request["profile"]["max_c"]}
+            self.run = {"running": True, "state": "running", "run_id": run_id, "message": f"Starting {len(request['sensors'])} Pods across {len(request['scenarios'])} scenarios…", "sensors": request["sensors"], "scenarios": request["scenarios"], "requested_events": len(request["sensors"]) * len(request["scenarios"]) * request["max_events"], "events_received": 0, "profile_id": request["profile"]["id"], "min_temp": request["profile"]["min_c"], "max_temp": request["profile"]["max_c"], "max_events": request["max_events"], "source_file_id": request.get("source_file_id"), "source_file_name": request.get("source_file_name")}
             self.broadcast({"type": "run_status", **self.run})
             try:
                 for sensor in request["sensors"]:
-                    process = subprocess.Popen(
-                        build_generator_command(request, sensor, self.generator_path),
-                        cwd=self.project_dir,
-                        # Generator output is useful at the terminal but is
-                        # not part of the browser protocol. Discarding stdout
-                        # avoids filling a pipe during a larger run.
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                    )
-                    self.processes[sensor] = process
-                    threading.Thread(target=self._watch_process, args=(sensor, process, run_id), daemon=True).start()
+                    for scenario in request["scenarios"]:
+                        worker_key = f"{sensor}:{scenario}"
+                        process = subprocess.Popen(
+                            build_generator_command(request, sensor, self.generator_path, scenario),
+                            cwd=self.project_dir,
+                            # Generator output is useful at the terminal but is
+                            # not part of the browser protocol. Discarding stdout
+                            # avoids filling a pipe during a larger run.
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                        )
+                        self.processes[worker_key] = process
+                        threading.Thread(target=self._watch_process, args=(worker_key, process, run_id), daemon=True).start()
             except OSError as exc:
                 self._stop_processes_locked()
                 self._finish_locked("failed", f"Could not start generator: {exc}")
                 raise ValueError(str(exc)) from exc
         return self.status()
 
-    def _watch_process(self, sensor: str, process: subprocess.Popen[str], run_id: str) -> None:
+    def _watch_process(self, worker_key: str, process: subprocess.Popen[str], run_id: str) -> None:
         stdout, stderr = process.communicate()
         with self.lock:
-            self.processes.pop(sensor, None)
+            self.processes.pop(worker_key, None)
             if self.run.get("run_id") != run_id:
                 return
             if process.returncode != 0 and self.run["state"] == "running":
-                message = stderr.strip().splitlines()[-1] if stderr.strip() else f"{sensor} stopped with code {process.returncode}."
+                message = stderr.strip().splitlines()[-1] if stderr.strip() else f"{worker_key} stopped with code {process.returncode}."
                 self._stop_processes_locked()
                 self._finish_locked("failed", message)
             elif not self.processes and self.run["state"] == "running":
@@ -320,6 +366,38 @@ class DashboardState:
             self.db_connection = psycopg.connect(host="localhost", port=5432, dbname="iotdb", user="mokshjoshi")
         except Exception as exc:
             raise ValueError(f"PostgreSQL is unavailable: {exc}") from exc
+
+    def upload_source(self, content: bytes, filename: str) -> dict[str, Any]:
+        """Store one local CSV upload for a later bounded generator run."""
+        if not content:
+            raise ValueError("The uploaded CSV is empty.")
+        if len(content) > 100 * 1024 * 1024:
+            raise ValueError("The uploaded CSV must be smaller than 100 MB.")
+        if not filename.lower().endswith(".csv"):
+            raise ValueError("Upload a CSV file for live replay.")
+        self.upload_directory.mkdir(parents=True, exist_ok=True)
+        source_id = uuid.uuid4().hex[:12]
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", os.path.basename(filename)) or "uploaded.csv"
+        path = self.upload_directory / f"{source_id}-{safe_name}"
+        path.write_bytes(content)
+        with self.lock:
+            self.uploads[source_id] = path
+        return {"source_file_id": source_id, "filename": filename, "bytes": len(content)}
+
+    def cleanup_uploads(self) -> None:
+        """Remove only temporary uploads created by this bridge process."""
+        with self.lock:
+            paths = list(self.uploads.values())
+            self.uploads.clear()
+        for path in paths:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+        try:
+            self.upload_directory.rmdir()
+        except OSError:
+            pass
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -384,6 +462,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         length = int(self.headers.get("Content-Length", "0"))
+        if path == "/api/run/source":
+            try:
+                content = self.rfile.read(length)
+                filename = self.headers.get("X-Filename", "uploaded.csv")
+                self._json(201, self.state.upload_source(content, filename))
+            except ValueError as exc:
+                self._json(400, {"error": str(exc)})
+            return
         try:
             payload = json.loads(self.rfile.read(length) or b"{}")
         except json.JSONDecodeError:
@@ -429,6 +515,7 @@ def main() -> int:
         pass
     finally:
         state.stop_run()
+        state.cleanup_uploads()
         state.mqtt_client.loop_stop()
         state.mqtt_client.disconnect()
         server.server_close()

@@ -11,6 +11,8 @@
     upperLimitC: -60,
   });
 
+  const SENSOR_TOLERANCE_C = 0.5;
+
   const STATUS_ORDER = ['STABLE', 'ACCEPTABLE', 'TOO_COLD', 'TOO_WARM'];
   const PROFILE_DEFINITIONS = {
     pfizer_ultralow: { id: 'pfizer_ultralow', label: 'Pfizer ultralow', targetC: -78.5, lowerLimitC: -80, upperLimitC: -60, guidance: 'Simulation profile based on the Pfizer ultralow cold-chain range.', sourceUrl: '' },
@@ -32,6 +34,41 @@
     if (temperature > profile.upperLimitC) return 'TOO_WARM';
     if (Math.abs(temperature - profile.targetC) <= 1) return 'STABLE';
     return 'ACCEPTABLE';
+  }
+
+  function classifyUncertainty(value, profile = PROFILE, tolerance = SENSOR_TOLERANCE_C) {
+    const temperature = Number(value);
+    const lower = Number(profile.lowerLimitC);
+    const upper = Number(profile.upperLimitC);
+    const margin = Number(tolerance);
+    if (![temperature, lower, upper, margin].every(Number.isFinite)) return 'UNKNOWN';
+    const possibleMin = temperature - margin;
+    const possibleMax = temperature + margin;
+    const crossesLower = possibleMin < lower && possibleMax >= lower;
+    const crossesUpper = possibleMin <= upper && possibleMax > upper;
+    if (crossesLower && crossesUpper) return 'BORDERLINE_RANGE';
+    if (crossesLower) return 'BORDERLINE_COLD';
+    if (crossesUpper) return 'BORDERLINE_WARM';
+    if (possibleMax < lower) return 'CLEARLY_TOO_COLD';
+    if (possibleMin > upper) return 'CLEARLY_TOO_WARM';
+    return 'WITHIN_RANGE';
+  }
+
+  function uncertaintyFields(value, profile = PROFILE, tolerance = SENSOR_TOLERANCE_C) {
+    const temperature = Number(value);
+    const margin = Number(tolerance);
+    const possibleMin = Number((temperature - margin).toFixed(2));
+    const possibleMax = Number((temperature + margin).toFixed(2));
+    return {
+      sensor_tolerance_c: Number(margin.toFixed(2)),
+      temperature_min_possible_c: possibleMin,
+      temperature_max_possible_c: possibleMax,
+      storage_min_c: Number(profile.lowerLimitC),
+      storage_max_c: Number(profile.upperLimitC),
+      uncertainty_status: classifyUncertainty(temperature, profile, margin),
+      boundary_crossing: classifyUncertainty(temperature, profile, margin).startsWith('BORDERLINE'),
+      measurement_confidence: 'Approximately +/-0.5 C Type-T thermocouple accuracy',
+    };
   }
 
   function parseCsvLine(line) {
@@ -70,6 +107,7 @@
       scenario: String(raw.scenario ?? 'normal'),
       temperature_c: temperature,
       status: classifyTemperature(temperature, profile),
+      ...uncertaintyFields(temperature, profile, raw.sensor_tolerance_c ?? SENSOR_TOLERANCE_C),
     };
   }
 
@@ -250,6 +288,41 @@
     }, {});
   }
 
+  function buildScenarioOutcomeSeries(events) {
+    const groups = new Map();
+    events.forEach((event) => {
+      const group = groups.get(event.scenario) || { label: event.scenario, total: 0, tooCold: 0, tooWarm: 0, borderline: 0, crossing: 0 };
+      group.total += 1;
+      if (event.status === 'TOO_COLD') group.tooCold += 1;
+      if (event.status === 'TOO_WARM') group.tooWarm += 1;
+      if (String(event.uncertainty_status || '').startsWith('BORDERLINE')) group.borderline += 1;
+      if (event.boundary_crossing) group.crossing += 1;
+      groups.set(event.scenario, group);
+    });
+    return Array.from(groups.values());
+  }
+
+  function buildSensorSpreadSeries(events, selectedSensors = []) {
+    const selected = selectedSensors.length ? selectedSensors : summarizeSensors(events).map((sensor) => sensor.sensorName);
+    return selected.map((sensorName) => {
+      const values = events.filter((event) => event.sensor_name === sensorName).map((event) => event.temperature_c).filter(Number.isFinite);
+      if (!values.length) return { label: sensorName, minimum: null, average: null, maximum: null };
+      return { label: sensorName, minimum: Math.min(...values), average: values.reduce((sum, value) => sum + value, 0) / values.length, maximum: Math.max(...values) };
+    }).filter((value) => value.minimum !== null);
+  }
+
+  function buildUncertaintySeries(events) {
+    const groups = new Map();
+    events.forEach((event) => {
+      const day = String(event.timestamp).slice(0, 10) || 'Unknown';
+      const group = groups.get(day) || { label: day, borderline: 0, crossing: 0 };
+      if (String(event.uncertainty_status || '').startsWith('BORDERLINE')) group.borderline += 1;
+      if (event.boundary_crossing) group.crossing += 1;
+      groups.set(day, group);
+    });
+    return Array.from(groups.values());
+  }
+
   function buildExcursionSeries(events) {
     const buckets = new Map();
     sortedEvents(events).forEach((event) => {
@@ -297,23 +370,29 @@
   }
 
   function toCsv(events) {
-    const headers = ['device_id', 'timestamp', 'source_timestamp', 'sensor_name', 'vaccine_type', 'scenario', 'temperature_c', 'status'];
+    const headers = ['device_id', 'timestamp', 'source_timestamp', 'sensor_name', 'vaccine_type', 'scenario', 'temperature_c', 'status', 'sensor_tolerance_c', 'temperature_min_possible_c', 'temperature_max_possible_c', 'storage_min_c', 'storage_max_c', 'uncertainty_status', 'boundary_crossing', 'measurement_confidence'];
     const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
     return [headers.join(','), ...events.map((event) => headers.map((header) => quote(event[header])).join(','))].join('\n');
   }
 
   return {
     PROFILE,
+    SENSOR_TOLERANCE_C,
     PROFILE_DEFINITIONS,
     getProfile,
     normalizeEvent,
     STATUS_ORDER,
     classifyTemperature,
+    classifyUncertainty,
+    uncertaintyFields,
     parseTemperatureEvents,
     summarizeSensors,
     buildChartSeries,
     buildStatusCounts,
     buildScenarioCounts,
+    buildScenarioOutcomeSeries,
+    buildSensorSpreadSeries,
+    buildUncertaintySeries,
     buildExcursionSeries,
     buildReplayOffsetSeries,
     createDemoEvents,

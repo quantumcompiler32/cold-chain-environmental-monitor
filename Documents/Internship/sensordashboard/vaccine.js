@@ -9,7 +9,7 @@
   let events = data.createDemoEvents();
   let selectedSensors = DEFAULT_SENSORS.slice();
   let profile = data.PROFILE;
-  let dataLabel = 'Using built-in demo events';
+  let dataLabel = 'Using local event data';
   let sourceLabel = 'LOCAL';
   let liveMode = false;
   let liveRunId = null;
@@ -54,6 +54,7 @@
     const warmest = summaries.reduce((best, sensor) => !best || sensor.latestTemperatureC > best.latestTemperatureC ? sensor : best, null);
     const coldest = summaries.reduce((best, sensor) => !best || sensor.latestTemperatureC < best.latestTemperatureC ? sensor : best, null);
     const latestEvent = sorted(events).at(-1);
+    const borderline = events.filter((event) => String(event.uncertainty_status || '').startsWith('BORDERLINE')).length;
     $('kpiInRange').textContent = `${inRange}/${summaries.length}`;
     $('kpiInRangeDetail').textContent = inRange === summaries.length ? 'All package sensors acceptable' : `${summaries.length - inRange} sensor${summaries.length - inRange === 1 ? '' : 's'} outside range`;
     $('kpiWarmest').textContent = formatC(warmest?.latestTemperatureC);
@@ -62,6 +63,8 @@
     $('kpiColdestDetail').textContent = coldest ? `${coldest.sensorName} · ${statusLabel(coldest.status)}` : 'No readings';
     $('kpiEvents').textContent = events.length.toLocaleString();
     $('kpiEventsDetail').textContent = latestEvent ? `Latest event ${new Date(latestEvent.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'No readings';
+    $('kpiBorderline').textContent = borderline.toLocaleString();
+    $('kpiBorderlineDetail').textContent = borderline ? 'Possible storage-boundary overlap' : 'No boundary overlap detected';
   }
 
   function renderAttention(summaries) {
@@ -107,10 +110,22 @@
     const margin = { top: 14, right: 12, bottom: 28, left: 40 };
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
-    const lower = profile.lowerLimitC;
-    const upper = profile.upperLimitC;
-    const min = Math.min(lower, profile.targetC) - 5;
-    const max = Math.max(upper, profile.targetC) + 5;
+    const observed = chart.series.flatMap((series) => series.values).filter(Number.isFinite);
+    const observedMin = observed.length ? Math.min(...observed) : profile.targetC;
+    const observedMax = observed.length ? Math.max(...observed) : profile.targetC;
+    const observedSpan = Math.max(observedMax - observedMin, 0.2);
+    const padding = Math.max(0.35, observedSpan * 0.25);
+    let min = observedMin - padding;
+    let max = observedMax + padding;
+    const thresholds = [profile.lowerLimitC, profile.upperLimitC, profile.targetC];
+    thresholds.forEach((threshold) => {
+      const closeToData = threshold >= observedMin - 3 && threshold <= observedMax + 3;
+      const nearestViolatedBoundary = observedMax < profile.lowerLimitC ? threshold === profile.lowerLimitC : observedMin > profile.upperLimitC ? threshold === profile.upperLimitC : false;
+      if (closeToData || nearestViolatedBoundary) {
+        min = Math.min(min, threshold - padding * 0.2);
+        max = Math.max(max, threshold + padding * 0.2);
+      }
+    });
     const x = (index) => margin.left + (chart.labels.length <= 1 ? plotWidth / 2 : index * plotWidth / (chart.labels.length - 1));
     const y = (value) => margin.top + (max - value) * plotHeight / (max - min);
     const yTicks = Array.from({ length: 7 }, (_, index) => min + (max - min) * index / 6).reverse();
@@ -118,7 +133,13 @@
     const grid = yTicks.map((tick) => `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(tick)}" y2="${y(tick)}" stroke="rgba(255,255,255,.06)"/><text x="${margin.left - 8}" y="${y(tick) + 3}" text-anchor="end" fill="#6b7280" font-size="10">${tick.toFixed(1)}°</text>`).join('');
     const labels = xTicks.map(({ label, index }) => `<text x="${x(index)}" y="${height - 7}" text-anchor="middle" fill="#6b7280" font-size="10">${esc(new Date(label).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}</text>`).join('');
     const lines = chart.series.map((series, index) => `<path d="${linePath(series.values, x, y)}" fill="none" stroke="${COLORS[index % COLORS.length]}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`).join('');
-    target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Selected package temperature trend"><rect x="${margin.left}" y="${y(upper)}" width="${plotWidth}" height="${y(lower) - y(upper)}" fill="rgba(16,185,129,.1)"/><line x1="${margin.left}" x2="${width - margin.right}" y1="${y(lower)}" y2="${y(lower)}" stroke="rgba(96,165,250,.65)" stroke-dasharray="4 4"/><line x1="${margin.left}" x2="${width - margin.right}" y1="${y(upper)}" y2="${y(upper)}" stroke="rgba(239,68,68,.65)" stroke-dasharray="4 4"/><line x1="${margin.left}" x2="${width - margin.right}" y1="${y(profile.targetC)}" y2="${y(profile.targetC)}" stroke="#fbbf24" stroke-dasharray="2 4"/>${grid}${lines}${labels}</svg>`;
+    const bandTop = Math.min(max, profile.upperLimitC);
+    const bandBottom = Math.max(min, profile.lowerLimitC);
+    const band = bandBottom > bandTop ? `<rect x="${margin.left}" y="${y(bandTop)}" width="${plotWidth}" height="${y(bandBottom) - y(bandTop)}" fill="rgba(16,185,129,.1)"/>` : '';
+    const lowerLine = profile.lowerLimitC >= min && profile.lowerLimitC <= max ? `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(profile.lowerLimitC)}" y2="${y(profile.lowerLimitC)}" stroke="rgba(96,165,250,.65)" stroke-dasharray="4 4"/>` : '';
+    const upperLine = profile.upperLimitC >= min && profile.upperLimitC <= max ? `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(profile.upperLimitC)}" y2="${y(profile.upperLimitC)}" stroke="rgba(239,68,68,.65)" stroke-dasharray="4 4"/>` : '';
+    const targetLine = profile.targetC >= min && profile.targetC <= max ? `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(profile.targetC)}" y2="${y(profile.targetC)}" stroke="#fbbf24" stroke-dasharray="2 4"/>` : '';
+    target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Selected package temperature trend">${band}${lowerLine}${upperLine}${targetLine}${grid}${lines}${labels}</svg>`;
   }
 
   function renderStatusBars(summaries) {
@@ -153,12 +174,60 @@
     target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Bar chart">${grid}${bars}</svg>`;
   }
 
+  function renderGroupedBars(target, values, groups) {
+    const width = Math.max(target.clientWidth || 420, 280);
+    const height = 170;
+    const margin = { top: 12, right: 12, bottom: 30, left: 28 };
+    const plotWidth = width - margin.left - margin.right;
+    const plotHeight = height - margin.top - margin.bottom;
+    const max = Math.max(...values.flatMap((value) => groups.map((group) => value[group.key] || 0)), 1);
+    const groupWidth = plotWidth / Math.max(values.length, 1);
+    const barWidth = Math.max(8, groupWidth / (groups.length + 1));
+    const bars = values.map((value, index) => groups.map((group, groupIndex) => {
+      const amount = value[group.key] || 0;
+      const x = margin.left + index * groupWidth + (groupIndex + 0.5) * barWidth;
+      const barHeight = amount / max * plotHeight;
+      const y = margin.top + plotHeight - barHeight;
+      return `<rect x="${x}" y="${y}" width="${barWidth - 2}" height="${barHeight}" fill="${group.color}" rx="2"><title>${esc(value.label)} ${esc(group.label)}: ${amount}</title></rect>`;
+    }).join(`<text x="${margin.left + index * groupWidth + groupWidth / 2}" y="${height - 8}" text-anchor="middle" fill="#6b7280" font-size="9">${esc(value.label)}</text>`)).join('');
+    target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Grouped comparison chart"><line x1="${margin.left}" x2="${width - margin.right}" y1="${margin.top + plotHeight}" y2="${margin.top + plotHeight}" stroke="rgba(255,255,255,.12)"/>${bars}</svg>`;
+  }
+
+  function renderSensorSpread(target, values) {
+    const width = Math.max(target.clientWidth || 420, 280);
+    const height = 170;
+    const margin = { top: 12, right: 12, bottom: 30, left: 40 };
+    const plotWidth = width - margin.left - margin.right;
+    const plotHeight = height - margin.top - margin.bottom;
+    if (!values.length) {
+      target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Sensor variation chart"><text x="${width / 2}" y="${height / 2}" text-anchor="middle" fill="#6b7280" font-size="11">Waiting for readings</text></svg>`;
+      return;
+    }
+    const all = values.flatMap((value) => [value.minimum, value.average, value.maximum]);
+    const low = Math.min(...all) - 0.5;
+    const high = Math.max(...all) + 0.5;
+    const x = (index) => margin.left + (values.length <= 1 ? plotWidth / 2 : index * plotWidth / (values.length - 1));
+    const y = (value) => margin.top + (high - value) * plotHeight / (high - low);
+    const lines = values.map((value, index) => `<line x1="${x(index)}" x2="${x(index)}" y1="${y(value.minimum)}" y2="${y(value.maximum)}" stroke="#8b5cf6" stroke-width="5" stroke-linecap="round"/><circle cx="${x(index)}" cy="${y(value.average)}" r="4" fill="#10b981"/><text x="${x(index)}" y="${height - 8}" text-anchor="middle" fill="#6b7280" font-size="9">${esc(value.label)}</text>`).join('');
+    target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Minimum average maximum temperature by sensor">${lines}</svg>`;
+  }
+
   function renderCharts() {
     renderTemperatureChart();
     renderBars($('excursionChart'), data.buildExcursionSeries(events).slice(-12), { cold: '#60a5fa', warm: '#ef4444' }, (value) => value);
     const scenarios = Object.entries(data.buildScenarioCounts(events)).map(([label, count]) => ({ label, count }));
     renderBars($('scenarioChart'), scenarios, Object.values(SCENARIO_COLORS), (value) => value);
     $('scenarioLegend').innerHTML = scenarios.map((scenario) => `<span><i class="legend-dot" style="background:${SCENARIO_COLORS[scenario.label] || '#6b7280'}"></i>${esc(scenario.label)} ${scenario.count}</span>`).join('');
+    renderGroupedBars($('scenarioOutcomeChart'), data.buildScenarioOutcomeSeries(events), [
+      { key: 'tooCold', label: 'Cold/warm excursions', color: '#ef4444' },
+      { key: 'tooWarm', label: 'Warm excursions', color: '#f59e0b' },
+      { key: 'borderline', label: 'Borderline', color: '#ec4899' },
+    ]);
+    renderSensorSpread($('sensorSpreadChart'), data.buildSensorSpreadSeries(events, selectedSensors));
+    renderGroupedBars($('uncertaintyChart'), data.buildUncertaintySeries(events).slice(-12), [
+      { key: 'crossing', label: 'Boundary crossing', color: '#ec4899' },
+      { key: 'borderline', label: 'Borderline', color: '#8b5cf6' },
+    ]);
   }
 
   function renderTable(summaries) {
@@ -188,12 +257,16 @@
     renderCharts();
     renderTable(summaries);
     renderProvenance();
+    const borderline = events.filter((event) => String(event.uncertainty_status || '').startsWith('BORDERLINE')).length;
+    const crossing = events.filter((event) => event.boundary_crossing).length;
+    $('uncertaintySummary').textContent = `±${data.SENSOR_TOLERANCE_C.toFixed(1)}°C Type-T accuracy`;
+    $('uncertaintyCopy').textContent = `${borderline.toLocaleString()} borderline reading${borderline === 1 ? '' : 's'} and ${crossing.toLocaleString()} possible boundary crossing${crossing === 1 ? '' : 's'} in this view. The raw status still follows the selected storage range.`;
     $('dataMode').textContent = dataLabel;
-    $('modePill').textContent = liveMode ? 'LIVE MQTT' : sourceLabel === 'LOCAL' ? 'DEMO SIMULATION' : 'IMPORTED FILE';
+      $('modePill').textContent = liveMode ? 'LIVE MQTT' : sourceLabel === 'LOCAL' ? 'LOCAL SIMULATION' : 'IMPORTED FILE';
     $('profileName').textContent = profile.label;
     $('profileTarget').textContent = formatC(profile.targetC);
     $('profileRange').textContent = rangeText();
-    $('trendSub').textContent = `${selectedSensors.length} sensor${selectedSensors.length === 1 ? '' : 's'} selected${liveMode ? ' in this live run' : ''} · fixed chart scale · threshold band ${rangeText()}`;
+    $('trendSub').textContent = `${selectedSensors.length} sensor${selectedSensors.length === 1 ? '' : 's'} selected${liveMode ? ' in this live run' : ''} · focused axis · threshold band ${rangeText()}`;
     $('chartHelp').textContent = liveMode ? 'Pods selected in Live runner' : 'Choose sensors below';
     $('targetLegend').textContent = `Target ${formatC(profile.targetC)}`;
   }
@@ -240,10 +313,10 @@
     applyProfile('pfizer_ultralow');
     events = data.createDemoEvents();
     selectedSensors = DEFAULT_SENSORS.slice();
-    dataLabel = 'Using built-in demo events';
+    dataLabel = 'Using local event data';
     sourceLabel = 'LOCAL';
     render();
-    showToast('Demo data restored.');
+    showToast('Local data restored.');
   });
   $('exportButton').addEventListener('click', () => {
     const visible = events.filter((event) => selectedSensors.includes(event.sensor_name));

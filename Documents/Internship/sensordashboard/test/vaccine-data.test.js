@@ -12,6 +12,9 @@ const {
   buildStatusCounts,
   getProfile,
   normalizeEvent,
+  classifyUncertainty,
+  buildScenarioOutcomeSeries,
+  buildSensorSpreadSeries,
 } = require('../vaccine-data.js');
 
 test('classifies Pfizer ultralow temperatures using the documented profile', () => {
@@ -29,7 +32,7 @@ test('parses the temperature project CSV into the dashboard event vocabulary', (
     '1,device-a,2026-07-22 10:00:00-07,2020-12-16 11:25:54,Pod2,pfizer_ultralow,recovery,-79.7,ACCEPTABLE,2026-07-22 10:00:01-07',
   ].join('\n');
   const [event] = parseTemperatureEvents(csv, 'csv');
-  assert.deepEqual(event, {
+  assert.deepEqual({ ...event, sensor_tolerance_c: undefined, temperature_min_possible_c: undefined, temperature_max_possible_c: undefined, storage_min_c: undefined, storage_max_c: undefined, uncertainty_status: undefined, boundary_crossing: undefined, measurement_confidence: undefined }, {
     event_id: '2026-07-22 10:00:01-07',
     device_id: 'device-a',
     timestamp: '2026-07-22 10:00:00-07',
@@ -40,7 +43,17 @@ test('parses the temperature project CSV into the dashboard event vocabulary', (
     scenario: 'recovery',
     temperature_c: -79.7,
     status: 'ACCEPTABLE',
+    sensor_tolerance_c: undefined,
+    temperature_min_possible_c: undefined,
+    temperature_max_possible_c: undefined,
+    storage_min_c: undefined,
+    storage_max_c: undefined,
+    uncertainty_status: undefined,
+    boundary_crossing: undefined,
+    measurement_confidence: undefined,
   });
+  assert.equal(event.uncertainty_status, 'BORDERLINE_COLD');
+  assert.equal(event.boundary_crossing, true);
 });
 
 test('summarizes every package sensor and makes the chart series selectable', () => {
@@ -96,6 +109,27 @@ test('classifies Moderna events using custom bounds', () => {
   assert.equal(normalizeEvent({ sensor_name: 'Pod4', timestamp: '2026-07-22T10:00:00Z', temperature_c: -32.5 }, profile).status, 'STABLE');
   assert.equal(normalizeEvent({ sensor_name: 'Pod4', timestamp: '2026-07-22T10:00:01Z', temperature_c: -36 }, profile).status, 'TOO_COLD');
   assert.equal(normalizeEvent({ sensor_name: 'Pod4', timestamp: '2026-07-22T10:00:02Z', temperature_c: -24 }, profile).status, 'TOO_WARM');
+});
+
+test('keeps raw status separate from sensor uncertainty', () => {
+  assert.equal(classifyUncertainty(-80.2, PROFILE), 'BORDERLINE_COLD');
+  const event = normalizeEvent({ temperature_c: -80.2, sensor_name: 'Pod1' }, PROFILE);
+  assert.equal(event.status, 'TOO_COLD');
+  assert.equal(event.uncertainty_status, 'BORDERLINE_COLD');
+  assert.equal(event.temperature_min_possible_c, -80.7);
+  assert.equal(event.temperature_max_possible_c, -79.7);
+});
+
+test('builds useful multi-scenario comparison series', () => {
+  const events = [
+    normalizeEvent({ scenario: 'normal', sensor_name: 'Pod1', temperature_c: -78.5 }, PROFILE),
+    normalizeEvent({ scenario: 'failure', sensor_name: 'Pod1', temperature_c: -55 }, PROFILE),
+    normalizeEvent({ scenario: 'outlier', sensor_name: 'Pod2', temperature_c: -80.2 }, PROFILE),
+  ];
+  const outcomes = buildScenarioOutcomeSeries(events);
+  assert.equal(outcomes.find((item) => item.label === 'failure').tooWarm, 1);
+  assert.equal(outcomes.find((item) => item.label === 'outlier').borderline, 1);
+  assert.equal(buildSensorSpreadSeries(events, ['Pod1']).length, 1);
 });
 
 test('chart keeps repeated live timestamps as separate points', () => {

@@ -62,6 +62,26 @@ class DashboardBridgeTests(unittest.TestCase):
             "--max-events", "20",
         ]
 
+    def test_accepts_multiple_scenarios_and_variable_event_count(self):
+        result = bridge.validate_start_request(base_request(scenarios=["normal", "failure"], max_events=37))
+        assert result["scenarios"] == ["normal", "failure"]
+        assert result["max_events"] == 37
+
+    def test_builds_uploaded_csv_command_for_each_scenario(self):
+        request = bridge.validate_start_request(base_request())
+        request["source_path"] = Path("/tmp/uploaded.csv")
+        command = bridge.build_generator_command(request, "Pod2", Path("/project/temperature_event_generator.py"), "failure")
+        assert command[command.index("--scenario") + 1] == "failure"
+        assert command[-2:] == ["--csv-file", "/tmp/uploaded.csv"]
+
+    def test_stores_and_cleans_uploaded_csv(self):
+        state = bridge.DashboardState(Path("/tmp"), Path("/tmp/temperature_event_generator.py"))
+        result = state.upload_source(b"date,time,Pod1\n16-Dec-20,11:25:54,-113.7\n", "my data.csv")
+        self.assertIn(result["source_file_id"], state.uploads)
+        self.assertTrue(state.uploads[result["source_file_id"]].exists())
+        state.cleanup_uploads()
+        self.assertFalse(state.uploads)
+
     def test_publishes_event_to_subscriber_with_unique_sequence(self):
         # The sequence survives identical source timestamps and tags active
         # run events without changing the existing event fields.
@@ -77,6 +97,14 @@ class DashboardBridgeTests(unittest.TestCase):
             "scenario": "outlier",
             "temperature_c": -78.5,
             "status": "STABLE",
+            "sensor_tolerance_c": 0.5,
+            "temperature_min_possible_c": -79.0,
+            "temperature_max_possible_c": -78.0,
+            "storage_min_c": -80.0,
+            "storage_max_c": -60.0,
+            "uncertainty_status": "WITHIN_RANGE",
+            "boundary_crossing": False,
+            "measurement_confidence": "Approximately +/-0.5 C Type-T thermocouple accuracy",
         })
         payload = subscriber.get_nowait()
         assert payload["type"] == "event"

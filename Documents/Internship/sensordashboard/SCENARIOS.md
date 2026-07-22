@@ -19,8 +19,10 @@ independently to each selected Pod.
 | `failure` | Holds every generated event above the selected maximum. | The health summary and warm excursion counts remain abnormal for the run. |
 | `recovery` | Starts above the selected maximum and moves linearly toward the profile target. | The trend should move toward stability as events arrive. |
 
-The runner creates one generator process per selected Pod. This makes each
-Pod's stream independent while the bridge subscribes only once to MQTT. The
+The runner creates one generator process per selected Pod and scenario. You can
+set the number of events per combination. The total is selected Pods x
+selected scenarios x events per combination. This makes each stream
+independent while the bridge subscribes only once to MQTT. The
 Analytics page uses the exact Pod list stored in the run status, so its trend
 does not silently switch to a different set of Pods. The Pod chips on
 Analytics are intentionally locked during a live run; they are a display of
@@ -70,12 +72,11 @@ event look like an accidental Pfizer-temperature excursion.
 - The generator replays a CSV experiment; it does not model a physical
   refrigerator, packaging, thermal inertia, sensor drift, calibration error,
   transport delay, or a validated alarm policy.
-- A run is bounded to 20 events per selected Pod. The interval controls pacing,
-  not the number of events. This keeps demonstrations short and prevents a
-  forgotten simulation from running forever.
-- `outlier` produces one clear outlier per Pod with the current 20-event
-  default. Longer command-line runs can produce additional alternating cold
-  and warm outliers.
+- The runner defaults to 20 events per selected Pod/scenario, but the UI lets
+  you change this from 1 to 5000. The interval controls pacing. The bounded
+  limit prevents a forgotten simulation from running forever.
+- `outlier` produces a cold or warm outlier every twentieth event. A longer
+  run gives more outliers and alternates their direction.
 - `failure` is deliberately simple and always warm; it is not a realistic
   failure model.
 - `recovery` is a straight-line interpolation to the target, not a physical
@@ -85,6 +86,8 @@ event look like an accidental Pfizer-temperature excursion.
 - CSV/JSON imports are parsed in the browser. Very large files are sampled or
   capped to keep the page responsive, and imported status values are derived
   from the active profile.
+- Uploaded CSV replay is temporary. The bridge deletes uploaded files when it
+  stops; the file is not part of the GitHub-ready folder.
 - The visualizations are simulation analytics only. Excursions explain the
   generated behavior; they are not approval or disposition recommendations.
 
