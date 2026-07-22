@@ -29,6 +29,7 @@ This is the starting point for ByteSmart. Use it to see the work that needs atte
 | Analysis and model work | [[Analysis & Models]] |
 | Evidence, tradeoffs, and decisions | [[Findings & Decisions]] |
 | Reports, diagrams, demos, and visuals | [[Deliverables & Visuals]] |
+| Resolve unclear items or pending decisions | [[Review Queue]] |
 
 ## Current focus
 
@@ -51,3 +52,5 @@ ByteSmart combines environmental monitoring, sensor work, MQTT and PostgreSQL pi
 The current local organizer preserves original source files and watches the live project directory. The new ByteSmart refresh, review, and rebuild workflow will appear here as it is implemented.
 
 → [[Automation Guide]] · [[ByteSmart Vault Specification]]
+
+→ [[Review Queue]]

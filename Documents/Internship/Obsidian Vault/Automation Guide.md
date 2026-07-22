@@ -43,3 +43,13 @@ python3 /Users/mokshjoshi/Documents/Internship/automation/vault_refresh.py
 ```
 
 The existing login watcher still maintains the older `Artifacts` copies. It will be replaced only after the ByteSmart refresh workflow is fully verified.
+
+## Review queue
+
+After a refresh, build the one readable review page with:
+
+```bash
+python3 /Users/mokshjoshi/Documents/Internship/automation/vault_review.py
+```
+
+[[Review Queue]] contains only unclear source classifications and decisions marked `Pending` or `Defer`. It does not create a separate note for every item and does not use AI.

@@ -51,3 +51,13 @@ python3 automation/vault_refresh.py --project bytesmart
 Refresh writes one current source registry and a meaningful activity log inside the vault. It does not copy, modify, or delete original source files, and it skips unchanged sources using local timestamps, file sizes, and hashes.
 
 To add a future project, add one `[[project]]` entry to `projects.toml` with its ID, title, source roots, rule file, and active state. The refresh code and note model stay shared.
+
+## Review queue
+
+Build the readable local Review queue after a refresh:
+
+```bash
+python3 automation/vault_review.py
+```
+
+It collects only source rows that need a human classification and decision notes whose status is `Pending` or `Defer`. It creates one queue, not a note for every unresolved item, and makes no model calls.

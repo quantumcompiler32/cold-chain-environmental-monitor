@@ -22,6 +22,8 @@ This branch keeps evidence-backed conclusions, design decisions, tradeoffs, risk
 
 [[Vault Design Decisions]] · [[Internship Context And Glossary]] · [[ByteSmart Vault Specification]]
 
+→ [[Review Queue]]
+
 ## How to use it
 
 A finding explains what the evidence shows and its limitations. A decision explains what will be done and why. If the evidence is unclear, keep the item in Review instead of forcing a conclusion.

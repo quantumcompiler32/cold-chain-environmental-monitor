@@ -36,6 +36,7 @@ class SourceRecord:
     content_hash: str
     sync_status: str
     promotion_status: str
+    review_reason: str
 
 
 @dataclass(frozen=True)
@@ -146,6 +147,7 @@ def _record_from(
         content_hash=content_hash[:12],
         sync_status="Needs review" if is_review else "Current",
         promotion_status="Review" if is_review else "Registry only",
+        review_reason=classification.reason if is_review else "—",
     )
 
 
@@ -172,8 +174,8 @@ def _write_registry(vault_root: Path, project: Project, records: list[SourceReco
         "",
         "This is the current local record of ByteSmart sources. It helps you trace useful information without copying every source into a separate note.",
         "",
-        "| Source ID | Title | Type | Branch | Reference | Authority | Coverage | Sensitivity | Last checked | Hash | Sync | Promotion |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Source ID | Title | Type | Branch | Reference | Authority | Coverage | Sensitivity | Last checked | Hash | Sync | Promotion | Review reason |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for record in sorted(records, key=lambda item: (item.branch, item.title.lower(), item.reference)):
         lines.append(
@@ -193,6 +195,7 @@ def _write_registry(vault_root: Path, project: Project, records: list[SourceReco
                     record.content_hash,
                     record.sync_status,
                     record.promotion_status,
+                    record.review_reason,
                 )
             )
             + " |"

@@ -54,6 +54,7 @@ class VaultRefreshTests(unittest.TestCase):
             self.assertIn("System & Sensors", registry)
             self.assertIn("Inbox", registry)
             self.assertIn("reflection.txt", registry)
+            self.assertIn("no deterministic rule matched", registry)
             activity = (vault_root / "Current Work" / "Meaningful Activity.md").read_text(encoding="utf-8")
             self.assertIn("2 new", activity)
             self.assertIn("1 needs review", activity)
