@@ -73,3 +73,13 @@ zsh /Users/mokshjoshi/Documents/Internship/automation/install_vault_refresh_agen
 ```
 
 It makes no model calls, does not fetch external content, and writes only the source registry, Review queue, and meaningful activity when relevant.
+
+## Rebuild preview
+
+Preview a safe reorganization of existing vault copies with:
+
+```bash
+python3 /Users/mokshjoshi/Documents/Internship/automation/vault_rebuild.py --write-preview
+```
+
+The preview lists proposed moves, unresolved items, and protected content left untouched. It does not change anything. Applying a reviewed preview requires both `--apply` and `--confirm`; live project sources are never candidates.

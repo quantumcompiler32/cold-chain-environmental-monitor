@@ -79,3 +79,13 @@ python3 automation/vault_review.py
 It collects only source rows that need a human classification and decision notes whose status is `Pending` or `Defer`. It creates one queue, not a note for every unresolved item, and makes no model calls.
 
 To keep a source decision, add the exact source path from the registry as a `reference` entry in `bytesmart_vault_overrides.toml`. Valid note metadata still wins over an override; overrides win over ordinary matching rules.
+
+## Rebuild preview
+
+Preview proposed moves of existing vault copies without changing anything:
+
+```bash
+python3 automation/vault_rebuild.py --write-preview
+```
+
+Only `--apply --confirm` moves the proposed vault copies. Live project sources and protected note content are never candidates.

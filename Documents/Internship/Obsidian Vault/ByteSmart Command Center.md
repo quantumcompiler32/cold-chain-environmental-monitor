@@ -54,3 +54,5 @@ The current local organizer preserves original source files and watches the live
 → [[Automation Guide]] · [[ByteSmart Vault Specification]]
 
 → [[Review Queue]]
+
+→ [[Rebuild Preview]]
