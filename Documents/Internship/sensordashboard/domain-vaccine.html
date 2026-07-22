@@ -25,6 +25,12 @@
         </div>
       </header>
 
+      <nav class="dashboard-nav" aria-label="Vaccine dashboard pages">
+        <a class="dashboard-nav-link active" href="domain-vaccine.html" aria-current="page"><strong>Analytics</strong><span>Live visualizations</span></a>
+        <a class="dashboard-nav-link" href="domain-vaccine-live.html"><strong>Live runner</strong><span>Choose Pods and scenario</span></a>
+        <a class="dashboard-nav-link" href="domain-vaccine-raw.html"><strong>Raw events</strong><span>Readable event text</span></a>
+      </nav>
+
       <section class="profile-strip" aria-label="Active vaccine profile">
         <div><span class="profile-label">Active profile</span><strong id="profileName">Pfizer ultralow</strong></div>
         <div><span class="profile-label">Target</span><strong id="profileTarget">−78.5°C</strong></div>
@@ -46,7 +52,7 @@
 
       <section class="grid-2 chart-grid">
         <article class="card chart-card chart-card-wide" id="trendCard">
-          <div class="card-heading"><div><div class="card-title">Package temperature trend</div><div class="card-sub" id="trendSub">Six sensors selected · threshold band −80°C to −60°C</div></div><span class="chart-help">Click a sensor below to add or remove it</span></div>
+          <div class="card-heading"><div><div class="card-title">Package temperature trend</div><div class="card-sub" id="trendSub">Demo sensors selected · threshold band −80°C to −60°C</div></div><span class="chart-help" id="chartHelp">Choose sensors below</span></div>
           <div class="sensor-picker" id="sensorPicker" aria-label="Select package sensors"></div>
           <div class="chart-wrap vaccine-chart" id="temperatureChart" aria-label="Temperature trend chart"></div>
           <div class="chart-legend"><span><i class="legend-line stable-line"></i>Temperature</span><span><i class="legend-band"></i>Suggested range</span><span><i class="legend-line target-line"></i><span id="targetLegend">Target −78.5°C</span></span></div>

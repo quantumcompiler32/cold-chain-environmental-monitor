@@ -23,6 +23,11 @@
         <a class="button primary" href="domain-vaccine-live.html">Live runner</a>
       </div>
     </header>
+    <nav class="dashboard-nav" aria-label="Vaccine dashboard pages">
+      <a class="dashboard-nav-link" href="domain-vaccine.html"><strong>Analytics</strong><span>Live visualizations</span></a>
+      <a class="dashboard-nav-link" href="domain-vaccine-live.html"><strong>Live runner</strong><span>Choose Pods and scenario</span></a>
+      <a class="dashboard-nav-link active" href="domain-vaccine-raw.html" aria-current="page"><strong>Raw events</strong><span>Readable event text</span></a>
+    </nav>
     <section class="card raw-card">
       <div class="raw-toolbar"><span class="raw-badge" id="rawMode">LOCAL</span><label class="raw-label" for="rawSensorFilter">Sensor:</label><select class="raw-filter" id="rawSensorFilter"><option value="all">ALL PODS</option></select><span class="raw-label raw-count">Rows: <span id="rowCount">0</span></span></div>
       <div class="raw-stream readable-raw-stream" id="rawStream" aria-live="polite"></div>

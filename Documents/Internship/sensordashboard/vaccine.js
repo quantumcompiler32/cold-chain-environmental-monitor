@@ -13,6 +13,7 @@
   let sourceLabel = 'LOCAL';
   let liveMode = false;
   let liveRunId = null;
+  let runSensors = null;
   let renderQueued = false;
   let toastTimer;
 
@@ -76,7 +77,8 @@
     const picker = $('sensorPicker');
     const active = selectedSensors.filter((sensor) => availableSensors.includes(sensor));
     if (!liveMode) selectedSensors = active.length ? active : availableSensors.length ? availableSensors.slice(0, 6) : selectedSensors;
-    picker.innerHTML = availableSensors.map((sensorName, index) => `<button class="sensor-chip${selectedSensors.includes(sensorName) ? ' selected' : ''}" type="button" aria-pressed="${selectedSensors.includes(sensorName)}" data-sensor="${esc(sensorName)}" style="--chip-color:${COLORS[index % COLORS.length]}">${esc(sensorName)}</button>`).join('');
+    picker.innerHTML = availableSensors.map((sensorName, index) => `<button class="sensor-chip${selectedSensors.includes(sensorName) ? ' selected' : ''}" type="button" aria-pressed="${selectedSensors.includes(sensorName)}" data-sensor="${esc(sensorName)}" style="--chip-color:${COLORS[index % COLORS.length]}"${liveMode ? ' disabled title="Selected in the live run"' : ''}>${esc(sensorName)}</button>`).join('');
+    if (liveMode) return;
     picker.querySelectorAll('[data-sensor]').forEach((button) => button.addEventListener('click', () => {
       const sensor = button.dataset.sensor;
       selectedSensors = selectedSensors.includes(sensor) ? selectedSensors.filter((item) => item !== sensor) : [...selectedSensors, sensor];
@@ -160,7 +162,8 @@
   }
 
   function renderTable(summaries) {
-    $('sensorTable').innerHTML = summaries.map((sensor) => `<tr><td class="sensor-name">${esc(sensor.sensorName)}</td><td class="temp">${formatC(sensor.latestTemperatureC)}</td><td><span class="condition ${statusClass(sensor.status)}">${statusLabel(sensor.status)}</span></td><td class="muted-cell">${esc(sensor.latestScenario)}</td><td class="muted-cell">${sensor.readingCount}</td><td><button class="row-action" type="button" data-focus-sensor="${esc(sensor.sensorName)}">View trend</button></td></tr>`).join('');
+    $('sensorTable').innerHTML = summaries.map((sensor) => `<tr><td class="sensor-name">${esc(sensor.sensorName)}</td><td class="temp">${formatC(sensor.latestTemperatureC)}</td><td><span class="condition ${statusClass(sensor.status)}">${statusLabel(sensor.status)}</span></td><td class="muted-cell">${esc(sensor.latestScenario)}</td><td class="muted-cell">${sensor.readingCount}</td><td>${liveMode ? '<span class="muted-cell">Run selected</span>' : `<button class="row-action" type="button" data-focus-sensor="${esc(sensor.sensorName)}">View trend</button>`}</td></tr>`).join('');
+    if (liveMode) return;
     $('sensorTable').querySelectorAll('[data-focus-sensor]').forEach((button) => button.addEventListener('click', () => {
       selectedSensors = [button.dataset.focusSensor, ...selectedSensors.filter((sensor) => sensor !== button.dataset.focusSensor)].slice(0, 6);
       render();
@@ -177,7 +180,8 @@
 
   function render() {
     const summaries = data.summarizeSensors(events);
-    renderPicker(summaries.map((sensor) => sensor.sensorName));
+    const availableSensors = liveMode && runSensors?.length ? runSensors : summaries.map((sensor) => sensor.sensorName);
+    renderPicker(availableSensors);
     renderKpis(summaries);
     renderAttention(summaries);
     renderStatusBars(summaries);
@@ -189,7 +193,8 @@
     $('profileName').textContent = profile.label;
     $('profileTarget').textContent = formatC(profile.targetC);
     $('profileRange').textContent = rangeText();
-    $('trendSub').textContent = `${selectedSensors.length} sensor${selectedSensors.length === 1 ? '' : 's'} selected · fixed chart scale · threshold band ${rangeText()}`;
+    $('trendSub').textContent = `${selectedSensors.length} sensor${selectedSensors.length === 1 ? '' : 's'} selected${liveMode ? ' in this live run' : ''} · fixed chart scale · threshold band ${rangeText()}`;
+    $('chartHelp').textContent = liveMode ? 'Pods selected in Live runner' : 'Choose sensors below';
     $('targetLegend').textContent = `Target ${formatC(profile.targetC)}`;
   }
 
@@ -204,7 +209,8 @@
     liveMode = true;
     liveRunId = status.run_id;
     events = [];
-    selectedSensors = Array.isArray(status.sensors) && status.sensors.length ? status.sensors.slice() : DEFAULT_SENSORS.slice();
+    runSensors = Array.isArray(status.sensors) && status.sensors.length ? status.sensors.slice() : DEFAULT_SENSORS.slice();
+    selectedSensors = runSensors.slice();
     const bounds = { min_temp: status.min_temp, max_temp: status.max_temp };
     applyProfile(status.profile_id || 'pfizer_ultralow', bounds);
     dataLabel = `Live ${profile.label} run · waiting for events`;
@@ -230,6 +236,7 @@
   $('resetButton').addEventListener('click', () => {
     liveMode = false;
     liveRunId = null;
+    runSensors = null;
     applyProfile('pfizer_ultralow');
     events = data.createDemoEvents();
     selectedSensors = DEFAULT_SENSORS.slice();

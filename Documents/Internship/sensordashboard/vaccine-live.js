@@ -6,6 +6,12 @@
   const ALL_PODS = Array.from({ length: 20 }, (_, index) => `Pod${index + 1}`);
   const DEFAULT_PODS = ['Pod1', 'Pod2', 'Pod3', 'Pod6', 'Pod11', 'Pod20'];
   const DEFAULT_MAX_EVENTS = 20;
+  const SCENARIO_HELP = {
+    normal: 'Replays the source pattern without injecting an excursion.',
+    outlier: 'Adds an intentional threshold breach on the final event of this 20-event run.',
+    failure: 'Holds every event above the selected maximum to model sustained protection loss.',
+    recovery: 'Starts above the selected maximum and moves toward the profile target across the run.',
+  };
   let selectedPods = DEFAULT_PODS.slice();
   let profile = data.getProfile('pfizer_ultralow');
   let bridgeOnline = false;
@@ -33,15 +39,26 @@
   }
 
   function renderProfile() {
+    const usesCustomBounds = profile.id === 'moderna';
     $('profileName').textContent = profile.label;
     $('profileTarget').textContent = formatC(profile.targetC);
     $('profileRange').textContent = `${formatC(profile.lowerLimitC)} to ${formatC(profile.upperLimitC)}`;
     $('profileSourceText').textContent = profile.guidance || 'Statuses are calculated from the selected profile.';
     $('profileSourceLink').href = profile.sourceUrl || '#';
     $('profileSourceLink').style.display = profile.sourceUrl ? 'inline' : 'none';
-    $('runMinTemp').value = profile.lowerLimitC;
-    $('runMaxTemp').value = profile.upperLimitC;
-    $('profileGuidance').textContent = profile.guidance || 'Statuses are calculated from the selected profile.';
+    $('customBoundsFields').hidden = !usesCustomBounds;
+    $('runMinTemp').disabled = !usesCustomBounds;
+    $('runMaxTemp').disabled = !usesCustomBounds;
+    $('runMinTemp').value = usesCustomBounds ? profile.lowerLimitC : '';
+    $('runMaxTemp').value = usesCustomBounds ? profile.upperLimitC : '';
+    $('profileGuidance').textContent = usesCustomBounds
+      ? `${profile.guidance} These suggested bounds are editable for this simulation.`
+      : 'Pfizer ultralow uses its fixed simulation range. Select Moderna / Spikevax to show editable suggested bounds.';
+    renderScenarioHelp();
+  }
+
+  function renderScenarioHelp() {
+    $('scenarioGuidance').textContent = SCENARIO_HELP[$('runScenario').value] || '';
   }
 
   function renderPods() {
@@ -57,6 +74,7 @@
   function formError() {
     if (!selectedPods.length) return 'Select at least one Pod.';
     if (!Number.isInteger(Number($('runInterval').value)) || Number($('runInterval').value) < 50) return 'Interval must be at least 50 ms.';
+    if (profile.id !== 'moderna') return '';
     const min = Number($('runMinTemp').value);
     const max = Number($('runMaxTemp').value);
     if (!Number.isFinite(min) || !Number.isFinite(max)) return 'Enter both temperature bounds.';
@@ -97,8 +115,8 @@
         interval_ms: Number($('runInterval').value),
         max_events: DEFAULT_MAX_EVENTS,
         save_to_database: $('saveToDatabase').checked,
-        min_temp: Number($('runMinTemp').value),
-        max_temp: Number($('runMaxTemp').value),
+        min_temp: profile.id === 'moderna' ? Number($('runMinTemp').value) : null,
+        max_temp: profile.id === 'moderna' ? Number($('runMaxTemp').value) : null,
       }) });
       updateStatus(result);
       showToast('Live run started.');
@@ -114,6 +132,7 @@
   }
 
   $('runProfile').addEventListener('change', syncProfile);
+  $('runScenario').addEventListener('change', () => { renderScenarioHelp(); updateButtons(); });
   $('runInterval').addEventListener('input', updateButtons);
   $('runMinTemp').addEventListener('input', updateButtons);
   $('runMaxTemp').addEventListener('input', updateButtons);

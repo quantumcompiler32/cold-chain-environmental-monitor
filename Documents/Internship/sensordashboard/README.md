@@ -13,6 +13,7 @@ Open `index.html` and select **Vaccine Cold Chain**. The page is labelled `DEMO 
 - Local CSV/JSON loading for `temperature_events_export.csv`, the wide `Test1_TempCO2O2.csv` experiment file, or JSON temperature events.
 - CSV export for the sensors currently selected in the trend chart.
 - Simulation-focused alerts that explain generated out-of-range behavior without clinical review actions.
+- [SCENARIOS.md](SCENARIOS.md), which explains each scenario, profile bounds, data flow, and limitations.
 
 ## Data flow
 
@@ -37,29 +38,31 @@ The browser pages use a local API/MQTT adapter for optional live runs. Analytics
 
 ## Live event runner
 
-Start Mosquitto, then run the bridge beside the temperature generator:
+Start Mosquitto, then run the bridge from this same folder as the dashboard:
 
 ```bash
-cd /Users/mokshjoshi/Projects/iot_workspace/projects/temperature_iot_project
-./.venv/bin/python dashboard_bridge.py
+cd /path/to/sensordashboard
+source .venv/bin/activate
+python dashboard_bridge.py
 ```
 
 Open the dashboard through the normal local web server and wait for **Bridge connected**. For example:
 
 ```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+cd /path/to/sensordashboard
 python3 -m http.server 8765
 ```
 
-Then open `http://127.0.0.1:8765/index.html`, open **Vaccine Cold Chain**, and use the **Live runner** link. Choose several Pods, a profile, and a scenario, then press **Start live run**. The analytics page clears its current view and redraws every graph and KPI as MQTT messages arrive; the raw page shows the same events as readable JSON. The Moderna / Spikevax frozen-storage suggestion is −50°C to −15°C, sourced from [Moderna’s storage guidance](https://products.modernatx.com/spikevaxpro/dosing-and-administration), and remains editable for simulation experiments. PostgreSQL saving is optional and should only be enabled when the existing `temperature_events` table is available.
+Then open `http://127.0.0.1:8765/index.html`, open **Vaccine Cold Chain**, and use the top switcher. Choose several Pods, a profile, and a scenario in **Live runner**, then press **Start live run**. The Analytics page clears its current view, locks its trend to the run-selected Pods, and redraws every graph and KPI as MQTT messages arrive; the Raw events page shows the same events as readable JSON. The Moderna / Spikevax frozen-storage suggestion is −50°C to −15°C, sourced from [Moderna’s storage guidance](https://products.modernatx.com/spikevaxpro/dosing-and-administration), and remains editable for simulation experiments. PostgreSQL saving is optional and should only be enabled when the existing `temperature_events` table is available.
 
 ## Verification
 
-From `/Users/mokshjoshi/Documents/Internship`:
+From the dashboard folder:
 
 ```bash
-node --test sensordashboard/test/vaccine-data.test.js
-/Users/mokshjoshi/Projects/iot_workspace/projects/temperature_iot_project/.venv/bin/python -m unittest sensordashboard/test/test_dashboard_bridge.py
+node --test test/vaccine-data.test.js
+python -m unittest discover -s test -p 'test*.py'
+python -m unittest test_temperature_event_generator.py test_temperature_subscriber.py test_analyze_temperature_database.py
 ```
 
-The test seam covers profile threshold classification, CSV event parsing, sensor summaries, repeated live timestamps, bridge request validation, generator commands, and MQTT-to-subscriber event enrichment. `index.html` and `shared.css` are copied unchanged from the supplied dashboard shell.
+The test seam covers profile threshold classification, CSV event parsing, sensor summaries, repeated live timestamps, bridge request validation, generator commands, scenario behavior, and MQTT-to-subscriber event enrichment. `index.html` and `shared.css` are copied unchanged from the supplied dashboard shell. All bridge, generator, data, schema, and Python test files needed for this demo are together in this folder.
