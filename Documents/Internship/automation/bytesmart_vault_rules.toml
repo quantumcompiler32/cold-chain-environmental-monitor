@@ -1,0 +1,63 @@
+# ByteSmart deterministic vault rules.
+# Explicit frontmatter and manual overrides always take priority.
+
+version = 1
+inbox_folder = "Inbox"
+
+branches = [
+  "Current Work",
+  "Connected Sources",
+  "System & Sensors",
+  "Data Pipeline & Storage",
+  "Analysis & Models",
+  "Findings & Decisions",
+  "Deliverables & Visuals",
+]
+
+[[rule]]
+name = "current-work"
+branch = "Current Work"
+note_type = "work-item"
+filename_contains = ["task", "todo", "next", "plan", "blocker", "queue"]
+
+[[rule]]
+name = "connected-sources"
+branch = "Connected Sources"
+note_type = "source"
+filename_contains = ["source", "status report", "email", "gmail", "drive"]
+
+[[rule]]
+name = "system-and-sensors"
+branch = "System & Sensors"
+note_type = "topic"
+filename_contains = ["sensor", "arduino", "hardware", "mosquitto", "mqtt", "publisher", "subscriber"]
+
+[[rule]]
+name = "data-pipeline-and-storage"
+branch = "Data Pipeline & Storage"
+note_type = "topic"
+filename_contains = ["database", "postgres", "schema", "telemetry", "pipeline", "storage"]
+
+[[rule]]
+name = "analysis-and-models"
+branch = "Analysis & Models"
+note_type = "topic"
+filename_contains = ["analysis", "model", "notebook", "eda", "kmeans", "cluster"]
+
+[[rule]]
+name = "analysis-notebooks"
+branch = "Analysis & Models"
+note_type = "topic"
+extensions = [".ipynb"]
+
+[[rule]]
+name = "findings-and-decisions"
+branch = "Findings & Decisions"
+note_type = "finding"
+filename_contains = ["finding", "decision", "risk", "caveat", "limitation"]
+
+[[rule]]
+name = "deliverables-and-visuals"
+branch = "Deliverables & Visuals"
+note_type = "deliverable"
+filename_contains = ["report", "slide", "presentation", "demo", "diagram", "visual"]
