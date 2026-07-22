@@ -1,0 +1,57 @@
+{
+  "profile": {
+    "id": "pfizer_ultralow",
+    "target_c": -78.5,
+    "lower_limit_c": -80,
+    "upper_limit_c": -60,
+    "stable_band_c": 1
+  },
+  "temperatureEvent": {
+    "device_id": "vaccine_temperature_simulator",
+    "timestamp": "2026-07-22T10:15:00Z",
+    "source_timestamp": "2020-12-16T11:26:43Z",
+    "sensor_name": "Pod1",
+    "vaccine_type": "pfizer_ultralow",
+    "scenario": "normal",
+    "temperature_c": -78.4,
+    "status": "STABLE"
+  },
+  "sensorSummaryCard": {
+    "sensor_name": "Pod11",
+    "latest_temperature_c": -59.2,
+    "status": "TOO_WARM",
+    "latest_scenario": "failure",
+    "average_temperature_c": -67.4,
+    "minimum_temperature_c": -78.7,
+    "maximum_temperature_c": -59.2,
+    "reading_count": 24,
+    "excursion_count": 3
+  },
+  "temperatureTrendChart": {
+    "selected_sensors": ["Pod1", "Pod2", "Pod3", "Pod6", "Pod11", "Pod20"],
+    "labels": ["2026-07-21T08:00:00Z", "2026-07-22T07:00:00Z"],
+    "series": [
+      { "sensor_name": "Pod1", "values_c": [-78.2, -78.7] },
+      { "sensor_name": "Pod11", "values_c": [-78.1, -59.2] }
+    ]
+  },
+  "excursionChart": {
+    "bucket": "source_day",
+    "points": [
+      { "label": "2026-07-21", "too_cold": 0, "too_warm": 0 },
+      { "label": "2026-07-22", "too_cold": 3, "too_warm": 3 }
+    ]
+  },
+  "scenarioChart": {
+    "counts": { "normal": 360, "recovery": 80, "outlier": 20, "failure": 20 }
+  },
+  "replayProvenance": {
+    "event_time_minus_source_time_hours": 49000,
+    "source_timestamp_required": true
+  },
+  "operatorActions": {
+    "available": ["review_excursion", "view_trend", "load_file", "export_view"],
+    "disposition": ["Pending review", "Quarantined", "Released"],
+    "clinical_release_automation": false
+  }
+}

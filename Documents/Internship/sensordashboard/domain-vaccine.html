@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vaccine Cold Chain</title>
+  <link rel="stylesheet" href="shared.css">
+  <link rel="stylesheet" href="vaccine.css">
+</head>
+<body>
+  <div class="tabs-bar" role="tablist" aria-label="Vaccine dashboard views">
+    <button class="tab active" id="analyticsTab" type="button" role="tab" aria-selected="true" aria-controls="panel-analytics">Analytics</button>
+    <button class="tab" id="rawTab" type="button" role="tab" aria-selected="false" aria-controls="panel-raw">Raw events</button>
+  </div>
+
+  <main id="panel-analytics" class="tab-panel active" role="tabpanel" aria-labelledby="analyticsTab">
+    <div class="content-scroll vaccine-page">
+      <header class="page-header">
+        <div>
+          <div class="eyebrow"><span class="demo-pill">DEMO SIMULATION</span><span id="dataMode">Using built-in demo events</span></div>
+          <h1>Vaccine cold-chain overview</h1>
+          <p>See which package needs attention, then review the affected stock. This prototype does not make clinical release decisions.</p>
+        </div>
+        <div class="header-actions">
+          <button class="button secondary" id="importButton" type="button">Load CSV / JSON</button>
+          <input id="fileInput" type="file" accept=".csv,.json,application/json,text/csv" hidden>
+          <button class="button secondary" id="resetButton" type="button">Use demo data</button>
+          <button class="button primary" id="exportButton" type="button">Export view</button>
+        </div>
+      </header>
+
+      <section class="profile-strip" aria-label="Active vaccine profile">
+        <div><span class="profile-label">Active profile</span><strong>Pfizer ultralow</strong></div>
+        <div><span class="profile-label">Target</span><strong>−78.5°C</strong></div>
+        <div><span class="profile-label">Acceptable range</span><strong>−80°C to −60°C</strong></div>
+        <div class="profile-note">Statuses are derived from each reading.</div>
+      </section>
+
+      <section class="attention-banner" id="attentionBanner" aria-live="polite">
+        <div class="attention-icon">!</div>
+        <div class="attention-copy"><strong id="attentionTitle">Loading sensor health…</strong><span id="attentionText">Preparing the latest package readings.</span></div>
+        <button class="button small" id="reviewButton" type="button">Review excursion</button>
+      </section>
+
+      <section class="kpi-row" aria-label="Current summary">
+        <article class="kpi-card" style="--kpi-color:#10b981"><div class="kpi-label">Packages in range</div><div class="kpi-value" id="kpiInRange">—</div><div class="kpi-delta" id="kpiInRangeDetail">of 20 sensors</div></article>
+        <article class="kpi-card" style="--kpi-color:#f59e0b"><div class="kpi-label">Warmest package</div><div class="kpi-value" id="kpiWarmest">—</div><div class="kpi-delta" id="kpiWarmestDetail">—</div></article>
+        <article class="kpi-card" style="--kpi-color:#3b82f6"><div class="kpi-label">Coldest package</div><div class="kpi-value" id="kpiColdest">—</div><div class="kpi-delta" id="kpiColdestDetail">—</div></article>
+        <article class="kpi-card" style="--kpi-color:#8b5cf6"><div class="kpi-label">Temperature events</div><div class="kpi-value" id="kpiEvents">—</div><div class="kpi-delta" id="kpiEventsDetail">Latest event —</div></article>
+      </section>
+
+      <section class="grid-2 chart-grid">
+        <article class="card chart-card chart-card-wide" id="trendCard">
+          <div class="card-heading"><div><div class="card-title">Package temperature trend</div><div class="card-sub">Six sensors selected · threshold band −80°C to −60°C</div></div><span class="chart-help">Click a sensor below to add or remove it</span></div>
+          <div class="sensor-picker" id="sensorPicker" aria-label="Select package sensors"></div>
+          <div class="chart-wrap vaccine-chart" id="temperatureChart" aria-label="Temperature trend chart"></div>
+          <div class="chart-legend"><span><i class="legend-line stable-line"></i>Temperature</span><span><i class="legend-band"></i>Acceptable range</span><span><i class="legend-line target-line"></i>Target −78.5°C</span></div>
+        </article>
+        <article class="card chart-card">
+          <div class="card-title">Package health</div>
+          <div class="card-sub">Every Pod sensor, latest reading first</div>
+          <div class="health-summary" id="healthSummary"></div>
+          <div class="status-bars" id="statusBars"></div>
+        </article>
+      </section>
+
+      <section class="grid-2 chart-grid">
+        <article class="card chart-card">
+          <div class="card-title">Excursions and recovery</div>
+          <div class="card-sub">Out-of-range readings by source day</div>
+          <div class="chart-wrap small-chart" id="excursionChart" aria-label="Excursion chart"></div>
+          <div class="chart-legend"><span><i class="legend-dot cold-dot"></i>Too cold</span><span><i class="legend-dot warm-dot"></i>Too warm</span></div>
+        </article>
+        <article class="card chart-card">
+          <div class="card-title">Scenario mix</div>
+          <div class="card-sub">Provenance from the temperature event pipeline</div>
+          <div class="chart-wrap small-chart" id="scenarioChart" aria-label="Scenario chart"></div>
+          <div class="chart-legend" id="scenarioLegend"></div>
+        </article>
+      </section>
+
+      <section class="card sensor-card" id="sensorTableCard">
+        <div class="card-heading"><div><div class="card-title">All package sensors</div><div class="card-sub">Select a row to focus the trend chart. Values are calculated from imported or demo events.</div></div><span class="table-hint">Pod1–Pod20</span></div>
+        <div class="table-wrap"><table class="unit-table"><thead><tr><th>Sensor</th><th>Latest</th><th>Condition</th><th>Scenario</th><th>Readings</th><th></th></tr></thead><tbody id="sensorTable"></tbody></table></div>
+      </section>
+
+      <section class="card provenance-card">
+        <div><div class="card-title">Replay provenance</div><div class="card-sub">Event time minus source time, so imported historical readings stay traceable.</div></div>
+        <div class="provenance-value" id="provenanceValue">—</div>
+        <div class="provenance-track"><div id="provenanceFill"></div></div>
+      </section>
+    </div>
+  </main>
+
+  <section id="panel-raw" class="tab-panel" role="tabpanel" aria-labelledby="rawTab">
+    <div class="raw-wrap raw-vaccine-wrap">
+      <div class="raw-toolbar"><span class="raw-badge" id="rawMode">DEMO</span><label class="raw-label" for="rawSensorFilter">Sensor:</label><select class="raw-filter" id="rawSensorFilter"><option value="all">ALL PODS</option></select><span class="raw-label raw-count">Rows: <span id="rowCount">0</span></span></div>
+      <div class="raw-stream" id="rawStream" aria-live="polite"></div>
+      <div class="raw-footer"><div class="raw-stat">EVENTS <span id="statIn">0</span></div><div class="raw-stat">PROFILE <span>PFIZER ULTRALOW</span></div><div class="raw-stat">SOURCE <span id="rawSource">LOCAL DEMO</span></div></div>
+    </div>
+  </section>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="vaccine-data.js"></script>
+  <script src="vaccine.js"></script>
+</body>
+</html>
