@@ -64,7 +64,7 @@ zsh automation/install_vault_refresh_agent.sh
 
 The daily job runs only local refresh, Review, and dashboard health. Its logs are `automation/vault-refresh.log` and `automation/vault-refresh-error.log`.
 
-To add a future project, add one `[[project]]` entry to `projects.toml` with its ID, title, source roots, rule file, and active state. The refresh code and note model stay shared.
+To add a future project, add one `[[project]]` entry to `projects.toml` with its ID, title, source roots, rule file, dashboard note, work-queue note, and active state. The refresh code and note model stay shared. The central Source Registry preserves each project's rows when another project refreshes.
 
 `external_sources.toml` holds metadata-only Gmail and Google Drive references for each project. Refresh adds those rows to the same source registry without downloading, copying, or summarizing their content.
 

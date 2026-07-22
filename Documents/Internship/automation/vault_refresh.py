@@ -203,13 +203,54 @@ def _cell(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ")
 
 
+def _existing_registry_records(path: Path) -> tuple[SourceRecord, ...]:
+    """Read the generated registry rows so one project's refresh preserves the others."""
+    if not path.exists():
+        return ()
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    header_index = next((index for index, line in enumerate(lines) if line.startswith("| Source ID |")), None)
+    if header_index is None:
+        return ()
+    headers = [cell.strip() for cell in lines[header_index].strip("|").split("|")]
+    records: list[SourceRecord] = []
+    for line in lines[header_index + 2 :]:
+        if not line.startswith("| "):
+            break
+        values = [cell.strip().replace("\\|", "|") for cell in line.strip("|").split("|")]
+        if len(values) != len(headers):
+            continue
+        row = dict(zip(headers, values, strict=True))
+        records.append(
+            SourceRecord(
+                source_id=row["Source ID"],
+                title=row["Title"],
+                source_type=row["Type"],
+                branch=row["Branch"],
+                reference=row["Reference"],
+                authority=row["Authority"],
+                coverage=row["Coverage"],
+                sensitivity=row["Sensitivity"],
+                checked_at=row["Last checked"],
+                content_hash=row["Hash"],
+                sync_status=row["Sync"],
+                promotion_status=row["Promotion"],
+                review_reason=row["Review reason"],
+            )
+        )
+    return tuple(records)
+
+
 def _write_registry(vault_root: Path, project: Project, records: list[SourceRecord]) -> Path:
     registry_path = vault_root / "Connected Sources" / "Source Registry.md"
     registry_path.parent.mkdir(parents=True, exist_ok=True)
+    preserved = tuple(
+        record for record in _existing_registry_records(registry_path) if not record.source_id.startswith(f"{project.id}-")
+    )
+    all_records = (*preserved, *records)
     lines = [
         "---",
         "type: index",
-        f"project: {project.title}",
+        "project: Shared",
         "branch: Connected Sources",
         "status: Active",
         "confidence: high",
@@ -220,12 +261,12 @@ def _write_registry(vault_root: Path, project: Project, records: list[SourceReco
         "",
         "## What this is",
         "",
-        "This is the current local record of ByteSmart sources. It helps you trace useful information without copying every source into a separate note.",
+        "This is the current local record of connected project sources. It helps you trace useful information without copying every source into a separate note.",
         "",
         "| Source ID | Title | Type | Branch | Reference | Authority | Coverage | Sensitivity | Last checked | Hash | Sync | Promotion | Review reason |",
         "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
-    for record in sorted(records, key=lambda item: (item.branch, item.title.lower(), item.reference)):
+    for record in sorted(all_records, key=lambda item: (item.source_id.split("-", 1)[0], item.branch, item.title.lower(), item.reference)):
         lines.append(
             "| "
             + " | ".join(
@@ -263,14 +304,14 @@ def _write_activity(vault_root: Path, project: Project, result: RefreshResult) -
         activity_path.write_text(
             "---\n"
             "type: index\n"
-            f"project: {project.title}\n"
+            "project: Shared\n"
             "branch: Current Work\n"
             "status: Active\n"
             "confidence: high\n"
             "review: false\n"
             "---\n\n"
             "# Meaningful Activity\n\n"
-            "This log keeps changes that affect ByteSmart work. Routine unchanged refreshes are left out.\n",
+            "This log keeps meaningful connected-project changes. Routine unchanged refreshes are left out.\n",
             encoding="utf-8",
         )
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -278,7 +319,7 @@ def _write_activity(vault_root: Path, project: Project, result: RefreshResult) -
     with activity_path.open("a", encoding="utf-8") as activity_file:
         activity_file.write(
             f"\n## {timestamp}\n\n"
-            f"- Indexed {result.scanned} {source_label}: {result.new} new, {result.changed} changed, {result.review} needs review.\n"
+            f"- [{project.title}] Indexed {result.scanned} {source_label}: {result.new} new, {result.changed} changed, {result.review} needs review.\n"
         )
     return activity_path
 

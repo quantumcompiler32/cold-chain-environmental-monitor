@@ -66,12 +66,12 @@ The local organizer preserves original source files and watches the live project
 | Connected-source records | 5 |
 | Source review | 31 |
 | Decision review | 0 |
-| Last local refresh | 2026-07-22 03:22 UTC |
+| Last local refresh | 2026-07-22 03:28 UTC |
 | Changed / skipped | 0 / 48 |
 | Active / next work | 5 / 5 |
 | Waiting / blocked work | 0 / 0 |
 
-Latest activity: Indexed 48 sources: 48 new, 0 changed, 31 needs review.
+Latest activity: No meaningful activity recorded yet.
 
 → [[Current Internship Work Queue]] · [[Meaningful Activity]]
 

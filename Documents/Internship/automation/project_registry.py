@@ -21,6 +21,8 @@ class Project:
     source_roots: tuple[Path, ...]
     rules_file: Path
     active: bool
+    dashboard_note: str = ""
+    work_queue_note: str = ""
 
 
 @dataclass(frozen=True)
@@ -63,7 +65,17 @@ def _load_project(raw: object, position: int) -> Project:
         source_roots=_source_roots(raw.get("source_roots"), location),
         rules_file=Path(_required_string(raw.get("rules_file"), "rules_file", location)),
         active=active,
+        dashboard_note=str(raw.get("dashboard_note", "")).strip(),
+        work_queue_note=str(raw.get("work_queue_note", "")).strip(),
     )
+
+
+def _note_name(value: str, fallback: str, location: str) -> str:
+    name = value or fallback
+    path = Path(name)
+    if path.name != name or name in {".", ".."}:
+        raise ProjectRegistryError(f"{location} note name must be a single vault filename")
+    return name
 
 
 def load_projects(path: Path) -> ProjectRegistry:
@@ -80,6 +92,24 @@ def load_projects(path: Path) -> ProjectRegistry:
     ids = [project.id for project in projects]
     if len(set(ids)) != len(ids):
         raise ProjectRegistryError("project IDs must be unique")
+    if any(other.startswith(f"{project_id}-") for project_id in ids for other in ids if other != project_id):
+        raise ProjectRegistryError("project IDs cannot overlap by hyphenated prefix")
     if sum(project.active for project in projects) != 1:
         raise ProjectRegistryError("the registry must have exactly one active project")
-    return ProjectRegistry(projects=projects)
+    normalized = tuple(
+        Project(
+            id=project.id,
+            title=project.title,
+            source_roots=project.source_roots,
+            rules_file=project.rules_file,
+            active=project.active,
+            dashboard_note=_note_name(project.dashboard_note, f"{project.title} Command Center", f"project {project.id}"),
+            work_queue_note=_note_name(project.work_queue_note, f"{project.title} Work Queue", f"project {project.id}"),
+        )
+        for project in projects
+    )
+    if len({project.dashboard_note for project in normalized}) != len(normalized):
+        raise ProjectRegistryError("project dashboard_note values must be unique")
+    if len({project.work_queue_note for project in normalized}) != len(normalized):
+        raise ProjectRegistryError("project work_queue_note values must be unique")
+    return ProjectRegistry(projects=normalized)

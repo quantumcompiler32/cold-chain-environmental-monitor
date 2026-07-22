@@ -1,6 +1,6 @@
 ---
 type: index
-project: ByteSmart
+project: Shared
 branch: Connected Sources
 status: Active
 confidence: high
@@ -11,7 +11,7 @@ review: false
 
 ## What this is
 
-This is the current local record of ByteSmart sources. It helps you trace useful information without copying every source into a separate note.
+This is the current local record of connected project sources. It helps you trace useful information without copying every source into a separate note.
 
 | Source ID | Title | Type | Branch | Reference | Authority | Coverage | Sensitivity | Last checked | Hash | Sync | Promotion | Review reason |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|

@@ -141,6 +141,27 @@ class VaultRefreshTests(unittest.TestCase):
             self.assertEqual(len(source_ids), 2)
             self.assertEqual(len(set(source_ids)), 2)
 
+    def test_refresh_preserves_registry_rows_owned_by_another_project(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            first_root = base / "bytesmart-source"
+            second_root = base / "other-source"
+            vault_root = base / "vault"
+            first_root.mkdir()
+            second_root.mkdir()
+            (first_root / "sensor-guide.md").write_text("sensor", encoding="utf-8")
+            (second_root / "sensor-guide.md").write_text("sensor", encoding="utf-8")
+            rules_path = self.write_rules(base)
+            first = Project("bytesmart", "ByteSmart", (first_root,), rules_path, True)
+            second = Project("other", "Other Project", (second_root,), rules_path, False)
+
+            refresh_project(second, load_rules(rules_path), vault_root)
+            refresh_project(first, load_rules(rules_path), vault_root)
+
+            registry = (vault_root / "Connected Sources" / "Source Registry.md").read_text(encoding="utf-8")
+            self.assertIn("| other-", registry)
+            self.assertIn("| bytesmart-", registry)
+
     def test_loads_external_source_records_without_scanning_their_content(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "external_sources.toml"

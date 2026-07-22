@@ -95,18 +95,21 @@ def _section_bullets(path: Path, heading: str) -> int:
     return 0
 
 
-def _recent_activity(path: Path) -> str:
+def _recent_activity(path: Path, project_title: str) -> str:
     if not path.exists():
         return "No meaningful activity recorded yet."
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    for index, line in enumerate(lines):
-        if line.startswith("## "):
-            for candidate in lines[index + 1 :]:
-                if candidate.startswith("- "):
-                    return candidate[2:].strip()
-                if candidate.startswith("## "):
-                    break
+    for candidate in reversed(lines):
+        if candidate.startswith(f"- [{project_title}]"):
+            return candidate[2:].strip()
     return "No meaningful activity recorded yet."
+
+
+def _note_path(vault_root: Path, note_name: str) -> Path:
+    path = Path(note_name)
+    if path.name != note_name or note_name in {".", ".."}:
+        raise ValueError("dashboard and work-queue note names must be single filenames")
+    return vault_root / f"{note_name}.md"
 
 
 def _refresh_state(vault_root: Path, project_id: str) -> tuple[str, int, int]:
@@ -123,7 +126,13 @@ def _refresh_state(vault_root: Path, project_id: str) -> tuple[str, int, int]:
     return str(project.get("refreshed_at", "Not yet refreshed")), int(result.get("changed", 0)), int(result.get("unchanged", 0))
 
 
-def build_dashboard(vault_root: Path, project_id: str, project_title: str = "ByteSmart") -> DashboardHealth:
+def build_dashboard(
+    vault_root: Path,
+    project_id: str,
+    project_title: str = "ByteSmart",
+    dashboard_note: str = "ByteSmart Command Center",
+    work_queue_note: str = "Current Internship Work Queue",
+) -> DashboardHealth:
     """Collect dashboard health from generated local vault records without model calls."""
     vault_root = vault_root.expanduser().resolve()
     source_rows = _table_rows(vault_root / "Connected Sources" / "Source Registry.md", "| Source ID |")
@@ -139,9 +148,9 @@ def build_dashboard(vault_root: Path, project_id: str, project_title: str = "Byt
             and metadata.get("status", "").casefold() in {"pending", "defer"}
         ):
             pending_decisions += 1
-    work = _work_counts(vault_root / "Current Internship Work Queue.md")
+    work = _work_counts(_note_path(vault_root, work_queue_note))
     if work["active"] == 0:
-        work["active"] = _section_bullets(vault_root / "ByteSmart Command Center.md", "Current focus")
+        work["active"] = _section_bullets(_note_path(vault_root, dashboard_note), "Current focus")
     last_refresh, changed, unchanged = _refresh_state(vault_root, project_id)
     return DashboardHealth(
         project_id=project_id,
@@ -156,14 +165,19 @@ def build_dashboard(vault_root: Path, project_id: str, project_title: str = "Byt
         next_work=work["next"],
         waiting_work=work["waiting"],
         blocked_work=work["blocked"],
-        recent_activity=_recent_activity(vault_root / "Current Work" / "Meaningful Activity.md"),
+        recent_activity=_recent_activity(vault_root / "Current Work" / "Meaningful Activity.md", project_title),
     )
 
 
-def write_dashboard(vault_root: Path, health: DashboardHealth) -> Path:
+def write_dashboard(
+    vault_root: Path,
+    health: DashboardHealth,
+    dashboard_note: str = "ByteSmart Command Center",
+    work_queue_note: str = "Current Internship Work Queue",
+) -> Path:
     """Update only the dashboard's managed health block, preserving human content."""
     vault_root = vault_root.expanduser().resolve()
-    path = vault_root / "ByteSmart Command Center.md"
+    path = _note_path(vault_root, dashboard_note)
     start = f"<!-- managed:dashboard-health:{health.project_id}:start -->"
     end = f"<!-- managed:dashboard-health:{health.project_id}:end -->"
     lines = [
@@ -183,13 +197,13 @@ def write_dashboard(vault_root: Path, health: DashboardHealth) -> Path:
         "",
         f"Latest activity: {health.recent_activity}",
         "",
-        "→ [[Current Internship Work Queue]] · [[Meaningful Activity]]",
+        f"→ [[{work_queue_note}]] · [[Meaningful Activity]]",
         "",
         "→ [[Review Queue]] · [[Rebuild Preview]] · [[Automation Guide]]",
         end,
     ]
     generated = "\n".join(lines)
-    existing = path.read_text(encoding="utf-8") if path.exists() else "# ByteSmart Command Center\n"
+    existing = path.read_text(encoding="utf-8") if path.exists() else f"# {dashboard_note}\n"
     if start in existing and end in existing:
         before, remainder = existing.split(start, 1)
         _, after = remainder.split(end, 1)
@@ -209,8 +223,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         registry = load_projects(args.projects)
         project = registry.project(args.project) if args.project else registry.active_project
-        health = build_dashboard(args.vault, project.id, project.title)
-        path = write_dashboard(args.vault, health)
+        dashboard_note = project.dashboard_note or f"{project.title} Command Center"
+        work_queue_note = project.work_queue_note or f"{project.title} Work Queue"
+        health = build_dashboard(args.vault, project.id, project.title, dashboard_note, work_queue_note)
+        path = write_dashboard(args.vault, health, dashboard_note, work_queue_note)
     except (OSError, ValueError, ProjectRegistryError) as error:
         print(f"Dashboard refresh failed: {error}", file=sys.stderr)
         return 1

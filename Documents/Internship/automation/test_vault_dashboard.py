@@ -40,7 +40,7 @@ class VaultDashboardTests(unittest.TestCase):
         work_queue.write_text("## Active\n\n- Check sensors\n\n## Next\n\n- Build model\n\n## Waiting\n\n- Vendor reply\n\n## Blocked\n\n- No blocker\n", encoding="utf-8")
         activity = vault / "Current Work" / "Meaningful Activity.md"
         activity.parent.mkdir(parents=True)
-        activity.write_text("## 2026-07-21 12:30 UTC\n\n- Updated source registry.\n", encoding="utf-8")
+        activity.write_text("## 2026-07-21 12:30 UTC\n\n- [ByteSmart] Updated source registry.\n", encoding="utf-8")
         return vault
 
     def test_dashboard_summarizes_local_external_and_review_state(self):
@@ -60,7 +60,7 @@ class VaultDashboardTests(unittest.TestCase):
             self.assertEqual(health.next_work, 1)
             self.assertEqual(health.waiting_work, 1)
             self.assertEqual(health.blocked_work, 1)
-            self.assertEqual(health.recent_activity, "Updated source registry.")
+            self.assertEqual(health.recent_activity, "[ByteSmart] Updated source registry.")
 
     def test_dashboard_refresh_preserves_human_notes(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -75,6 +75,20 @@ class VaultDashboardTests(unittest.TestCase):
             self.assertIn("Keep this.", content)
             self.assertIn("Local sources | 2", content)
             self.assertIn("Source review | 1", content)
+
+    def test_dashboard_can_use_project_specific_note_names(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            vault = self.make_vault(Path(temp_dir))
+
+            path = write_dashboard(
+                vault,
+                build_dashboard(vault, "bytesmart", "ByteSmart", "Other Project Command Center", "Other Project Work Queue"),
+                "Other Project Command Center",
+                "Other Project Work Queue",
+            )
+
+            self.assertEqual(path.name, "Other Project Command Center.md")
+            self.assertIn("[[Other Project Work Queue]]", path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
