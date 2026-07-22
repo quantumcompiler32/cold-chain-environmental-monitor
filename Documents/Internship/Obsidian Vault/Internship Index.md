@@ -3,7 +3,7 @@
 This vault is the single reading and context layer for the ByteSmart/Bitwise internship work. It connects the chronological status reports to the project artifacts, decisions, and current work.
 
 > [!tip] Start here
-> Open [[00 — Internship Command Center]] for the visual dashboard, current work, and fastest links.
+> Open [[ByteSmart Command Center]] for the dashboard, current work, and fastest links.
 
 ## Projects
 

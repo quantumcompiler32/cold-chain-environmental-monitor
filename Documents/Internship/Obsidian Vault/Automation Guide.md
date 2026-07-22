@@ -4,9 +4,9 @@ tags: [internship, automation, reference]
 
 # Automation Guide
 
-## What happens automatically
+## Current behavior
 
-The Internship Organizer watches `/Users/mokshjoshi/Documents/EverythingLife/Internship` after login. It copies eligible new files into the vault, classifies them, preserves original filenames, and regenerates the imported-file manifest.
+The current organizer watches `/Users/mokshjoshi/Documents/EverythingLife/Internship` after login. It copies eligible new files into the vault, classifies them with the existing artifact categories, preserves original filenames, and regenerates the imported-file manifest.
 
 ## Categories
 
@@ -32,3 +32,8 @@ The organizer never deletes or edits source files. It ignores `.env`, `.DS_Store
 
 Open [[Imported Internship Files]] after creating or receiving new work. Anything under [[Imported Internship Files#Inbox|Inbox]] is intentionally waiting for a human category decision.
 
+## ByteSmart vault rules
+
+The new seven-branch ByteSmart rules are stored in `automation/bytesmart_vault_rules.toml`. They can be validated locally without AI, but they are not connected to the automatic refresh yet.
+
+The next automation slice will use those rules to update the ByteSmart branch pages, source registry, activity log, and Review queue while leaving the live source directory unchanged.
