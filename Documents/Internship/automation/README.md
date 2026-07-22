@@ -50,6 +50,20 @@ python3 automation/vault_refresh.py --project bytesmart
 
 Refresh writes one current source registry and a meaningful activity log inside the vault. It does not copy, modify, or delete original source files, and it skips unchanged sources using local timestamps, file sizes, and hashes.
 
+Run the normal local maintenance sequence—Refresh followed by Review—with one command:
+
+```bash
+python3 automation/vault_maintenance.py
+```
+
+Install the daily 8:00 AM macOS job with:
+
+```bash
+zsh automation/install_vault_refresh_agent.sh
+```
+
+The daily job runs only the local refresh and Review queue. Its logs are `automation/vault-refresh.log` and `automation/vault-refresh-error.log`.
+
 To add a future project, add one `[[project]]` entry to `projects.toml` with its ID, title, source roots, rule file, and active state. The refresh code and note model stay shared.
 
 `external_sources.toml` holds metadata-only Gmail and Google Drive references for each project. Refresh adds those rows to the same source registry without downloading, copying, or summarizing their content.

@@ -55,3 +55,19 @@ python3 /Users/mokshjoshi/Documents/Internship/automation/vault_review.py
 ```
 
 [[Review Queue]] contains only unclear source classifications and decisions marked `Pending` or `Defer`. It does not create a separate note for every item and does not use AI.
+
+## Daily and on-demand maintenance
+
+Use this normal on-demand command whenever you want the vault updated:
+
+```bash
+python3 /Users/mokshjoshi/Documents/Internship/automation/vault_maintenance.py
+```
+
+The optional macOS job runs the same local Refresh and Review sequence every day at 8:00 AM. Install it once with:
+
+```bash
+zsh /Users/mokshjoshi/Documents/Internship/automation/install_vault_refresh_agent.sh
+```
+
+It makes no model calls, does not fetch external content, and writes only the source registry, Review queue, and meaningful activity when relevant.
