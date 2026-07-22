@@ -7,7 +7,7 @@ from pathlib import Path
 
 from project_registry import Project
 from vault_refresh import load_external_sources, main, refresh_project
-from vault_rules import load_rules
+from vault_rules import load_overrides, load_rules
 
 
 class VaultRefreshTests(unittest.TestCase):
@@ -170,6 +170,80 @@ class VaultRefreshTests(unittest.TestCase):
             self.assertEqual(len(sources), 1)
             self.assertEqual(sources[0].source_id, "bytesmart-external-daily-reports")
             self.assertEqual(sources[0].sensitivity, "Sensitive")
+
+    def test_manual_override_files_an_otherwise_ambiguous_source(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            source_root = base / "source"
+            vault_root = base / "vault"
+            source_root.mkdir()
+            (source_root / "System Architecture.md").write_text("# System Architecture\n", encoding="utf-8")
+            rules_path = self.write_rules(base)
+            overrides_path = base / "overrides.toml"
+            overrides_path.write_text(
+                """
+                version = 1
+
+                [[override]]
+                reference = "{source_root / 'System Architecture.md'}"
+                branch = "System & Sensors"
+                note_type = "topic"
+                """.replace("{source_root / 'System Architecture.md'}", str(source_root / "System Architecture.md")),
+                encoding="utf-8",
+            )
+            project = Project(
+                id="bytesmart",
+                title="ByteSmart",
+                source_roots=(source_root,),
+                rules_file=rules_path,
+                active=True,
+            )
+
+            result = refresh_project(project, load_rules(rules_path), vault_root, overrides=load_overrides(overrides_path))
+
+            self.assertEqual(result.review, 0)
+            registry = result.registry_path.read_text(encoding="utf-8")
+            self.assertIn("| System Architecture.md | md | System & Sensors |", registry)
+            self.assertIn("Manual override", registry)
+
+    def test_manual_override_applies_to_only_its_exact_source_reference(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            first_root = base / "first"
+            second_root = base / "second"
+            vault_root = base / "vault"
+            first_root.mkdir()
+            second_root.mkdir()
+            first_readme = first_root / "README.md"
+            second_readme = second_root / "README.md"
+            first_readme.write_text("first", encoding="utf-8")
+            second_readme.write_text("second", encoding="utf-8")
+            rules_path = self.write_rules(base)
+            overrides_path = base / "overrides.toml"
+            overrides_path.write_text(
+                f"""
+                version = 1
+
+                [[override]]
+                reference = "{first_readme}"
+                branch = "System & Sensors"
+                note_type = "topic"
+                """,
+                encoding="utf-8",
+            )
+            project = Project(
+                id="bytesmart",
+                title="ByteSmart",
+                source_roots=(first_root, second_root),
+                rules_file=rules_path,
+                active=True,
+            )
+
+            result = refresh_project(project, load_rules(rules_path), vault_root, overrides=load_overrides(overrides_path))
+
+            self.assertEqual(result.review, 1)
+            registry = result.registry_path.read_text(encoding="utf-8")
+            self.assertEqual(registry.count("Manual override"), 1)
 
     def test_refresh_command_can_target_a_registered_project(self):
         with tempfile.TemporaryDirectory() as temp_dir:

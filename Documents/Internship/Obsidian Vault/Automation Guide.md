@@ -56,6 +56,8 @@ python3 /Users/mokshjoshi/Documents/Internship/automation/vault_review.py
 
 [[Review Queue]] contains only unclear source classifications and decisions marked `Pending` or `Defer`. It does not create a separate note for every item and does not use AI.
 
+When you decide where a source belongs, add its exact registry reference, branch, and note type to `automation/bytesmart_vault_overrides.toml`. That keeps the decision across future refreshes. A valid `branch` or `type` written in the source note itself still takes priority.
+
 ## Daily and on-demand maintenance
 
 Use this normal on-demand command whenever you want the vault updated:

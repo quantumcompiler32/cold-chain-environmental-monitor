@@ -23,6 +23,7 @@ NOTE_TYPES = frozenset(
     }
 )
 RULES_VERSION = 1
+OVERRIDES_VERSION = 1
 
 
 class RuleValidationError(ValueError):
@@ -41,11 +42,23 @@ class Rule:
 
 
 @dataclass(frozen=True)
+class ManualOverride:
+    reference: str
+    branch: str
+    note_type: str
+
+
+@dataclass(frozen=True)
 class VaultRules:
     version: int
     branches: tuple[str, ...]
     rules: tuple[Rule, ...]
     inbox_folder: str
+
+
+@dataclass(frozen=True)
+class VaultOverrides:
+    overrides: tuple[ManualOverride, ...]
 
 
 @dataclass(frozen=True)
@@ -150,6 +163,37 @@ def load_rules(path: Path) -> VaultRules:
     return VaultRules(version=version, branches=branches, rules=rules, inbox_folder=inbox_folder)
 
 
+def load_overrides(path: Path, rules: VaultRules | None = None) -> VaultOverrides:
+    """Load exact manual source decisions without changing source files."""
+    if not path.exists():
+        return VaultOverrides(overrides=())
+    with path.open("rb") as overrides_file:
+        raw = tomllib.load(overrides_file)
+    version = _required_integer(raw.get("version"), "version", "root")
+    if version != OVERRIDES_VERSION:
+        raise RuleValidationError(f"root.version must be {OVERRIDES_VERSION}")
+    raw_overrides = raw.get("override", [])
+    if not isinstance(raw_overrides, list):
+        raise RuleValidationError("root.override must be a list of tables")
+    overrides: list[ManualOverride] = []
+    for position, raw_override in enumerate(raw_overrides, start=1):
+        location = f"override[{position}]"
+        if not isinstance(raw_override, dict):
+            raise RuleValidationError(f"{location} must be a table")
+        reference = str(Path(_required_string(raw_override.get("reference"), "reference", location)).expanduser().resolve())
+        branch = _required_string(raw_override.get("branch"), "branch", location)
+        note_type = _required_string(raw_override.get("note_type"), "note_type", location)
+        if rules and branch not in rules.branches:
+            raise RuleValidationError(f"{location}.branch targets unknown branch: {branch}")
+        if note_type not in NOTE_TYPES:
+            raise RuleValidationError(f"{location}.note_type is not supported: {note_type}")
+        overrides.append(ManualOverride(reference=reference, branch=branch, note_type=note_type))
+    references = [override.reference for override in overrides]
+    if len(set(references)) != len(references):
+        raise RuleValidationError("manual override references must be unique")
+    return VaultOverrides(overrides=tuple(overrides))
+
+
 def _contains_any(value: str, expected: tuple[str, ...]) -> bool:
     return not expected or any(item.lower() in value for item in expected)
 
@@ -174,6 +218,8 @@ def classify(
     headings: tuple[str, ...] = (),
     explicit_branch: str | None = None,
     explicit_note_type: str | None = None,
+    overrides: VaultOverrides | None = None,
+    override_reference: str | None = None,
 ) -> Classification:
     """Classify one item using explicit metadata before deterministic rules."""
     matching_rule = next((rule for rule in rules.rules if _matches(rule, path, headings)), None)
@@ -202,6 +248,16 @@ def classify(
                 is_inbox=True,
             )
         return Classification(branch=branch, note_type=note_type, reason="explicit metadata")
+    lookup_reference = override_reference or str(path)
+    matching_override = next(
+        (override for override in (overrides.overrides if overrides else ()) if override.reference == lookup_reference), None
+    )
+    if matching_override:
+        return Classification(
+            branch=matching_override.branch,
+            note_type=matching_override.note_type,
+            reason="manual override",
+        )
     if matching_rule:
         return Classification(
             branch=matching_rule.branch,

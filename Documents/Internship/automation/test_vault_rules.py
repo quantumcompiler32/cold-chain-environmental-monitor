@@ -4,7 +4,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from vault_rules import RuleValidationError, classify, load_rules, main
+from vault_rules import RuleValidationError, classify, load_overrides, load_rules, main
 
 
 class VaultRulesTests(unittest.TestCase):
@@ -147,6 +147,49 @@ class VaultRulesTests(unittest.TestCase):
 
             self.assertEqual((result.branch, result.note_type, result.is_inbox), (None, "review", True))
             self.assertIn("unknown explicit branch", result.reason)
+
+    def test_note_metadata_wins_over_a_matching_manual_override(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            rules = load_rules(
+                self.write_rules(
+                    base,
+                    """
+                    version = 1
+                    inbox_folder = "Inbox"
+                    branches = ["System & Sensors", "Analysis & Models"]
+
+                    [[rule]]
+                    name = "sensor-files"
+                    branch = "System & Sensors"
+                    note_type = "topic"
+                    filename_contains = ["sensor"]
+                    """,
+                )
+            )
+            overrides_path = base / "overrides.toml"
+            overrides_path.write_text(
+                """
+                version = 1
+
+                [[override]]
+                reference = "sensor.md"
+                branch = "Analysis & Models"
+                note_type = "topic"
+                """,
+                encoding="utf-8",
+            )
+
+            result = classify(
+                Path("sensor.md"),
+                rules,
+                explicit_branch="System & Sensors",
+                explicit_note_type="topic",
+                overrides=load_overrides(overrides_path),
+            )
+
+            self.assertEqual(result.branch, "System & Sensors")
+            self.assertEqual(result.reason, "explicit metadata")
 
     def test_check_rules_command_validates_without_scanning_the_vault(self):
         with tempfile.TemporaryDirectory() as temp_dir:

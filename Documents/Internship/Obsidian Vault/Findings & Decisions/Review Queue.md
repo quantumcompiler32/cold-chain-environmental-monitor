@@ -1,6 +1,6 @@
 ---
 type: index
-project: ByteSmart
+project: Shared
 branch: Findings & Decisions
 status: Active
 confidence: high
@@ -10,9 +10,10 @@ cssclasses:
   - branch-findings-decisions
 ---
 
-# Review Queue
+<!-- managed:review-queue:bytesmart:start -->
+# Review Queue — ByteSmart
 
-This page holds only items that need a human decision. Review each item, then add a rule or override when the choice should stay consistent.
+This section holds only ByteSmart items that need a human decision. Review each item, then add its exact registry reference to `automation/bytesmart_vault_overrides.toml` when the choice should stay consistent.
 
 ## Source review
 
@@ -53,3 +54,4 @@ This page holds only items that need a human decision. Review each item, then ad
 ## Decision review
 
 No decisions are waiting for a choice.
+<!-- managed:review-queue:bytesmart:end -->

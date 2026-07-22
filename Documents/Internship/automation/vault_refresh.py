@@ -14,7 +14,7 @@ import tomllib
 
 from internship_organizer import is_ignored
 from project_registry import Project, ProjectRegistryError, load_projects
-from vault_rules import Classification, RuleValidationError, VaultRules, classify, load_rules
+from vault_rules import Classification, RuleValidationError, VaultOverrides, VaultRules, classify, load_overrides, load_rules
 
 
 STATE_VERSION = 1
@@ -194,7 +194,7 @@ def _record_from(
         checked_at=checked_at,
         content_hash=content_hash[:12],
         sync_status="Needs review" if is_review else "Current",
-        promotion_status="Review" if is_review else "Registry only",
+        promotion_status="Review" if is_review else ("Manual override" if classification.reason == "manual override" else "Registry only"),
         review_reason=classification.reason if is_review else "—",
     )
 
@@ -284,7 +284,11 @@ def _write_activity(vault_root: Path, project: Project, result: RefreshResult) -
 
 
 def refresh_project(
-    project: Project, rules: VaultRules, vault_root: Path, external_sources: tuple[SourceRecord, ...] = ()
+    project: Project,
+    rules: VaultRules,
+    vault_root: Path,
+    external_sources: tuple[SourceRecord, ...] = (),
+    overrides: VaultOverrides | None = None,
 ) -> RefreshResult:
     """Refresh one project using only local files, rules, hashes, and Markdown output."""
     vault_root = vault_root.expanduser().resolve()
@@ -331,6 +335,8 @@ def refresh_project(
             headings=headings,
             explicit_branch=explicit_branch,
             explicit_note_type=explicit_note_type,
+            overrides=overrides,
+            override_reference=str(path),
         )
         if classification.is_inbox:
             review += 1
@@ -376,6 +382,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--projects", type=Path, default=DEFAULT_PROJECTS)
     parser.add_argument("--vault", type=Path, default=DEFAULT_VAULT)
     parser.add_argument("--external-sources", type=Path)
+    parser.add_argument("--overrides", type=Path)
     parser.add_argument("--project", help="project ID; defaults to the active project")
     args = parser.parse_args(argv)
     try:
@@ -383,11 +390,14 @@ def main(argv: list[str] | None = None) -> int:
         project = registry.project(args.project) if args.project else registry.active_project
         rules_path = project.rules_file if project.rules_file.is_absolute() else args.projects.parent / project.rules_file
         external_sources_path = args.external_sources or args.projects.parent / "external_sources.toml"
+        overrides_path = args.overrides or args.projects.parent / f"{project.id}_vault_overrides.toml"
+        rules = load_rules(rules_path)
         result = refresh_project(
             project,
-            load_rules(rules_path),
+            rules,
             args.vault,
             load_external_sources(external_sources_path, project.id),
+            load_overrides(overrides_path, rules),
         )
     except (FileNotFoundError, OSError, json.JSONDecodeError, ProjectRegistryError, RuleValidationError, ValueError) as error:
         print(f"Refresh failed: {error}", file=sys.stderr)
