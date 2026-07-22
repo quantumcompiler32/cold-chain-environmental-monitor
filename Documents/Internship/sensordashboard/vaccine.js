@@ -108,7 +108,8 @@
     const target = $('temperatureChart');
     const chart = data.buildChartSeries(events, selectedSensors);
     const width = Math.max(target.clientWidth || 620, 320);
-    const height = 236;
+    const height = data.getChartHeight(chart.series.length);
+    target.style.height = `${height}px`;
     const margin = { top: 14, right: 12, bottom: 28, left: 40 };
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
@@ -224,13 +225,15 @@
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        events = data.parseTemperatureEvents(String(reader.result), file.name.toLowerCase().endsWith('.json') ? 'json' : 'csv');
+        const importedEvents = data.parseTemperatureEvents(String(reader.result), file.name.toLowerCase().endsWith('.json') ? 'json' : 'csv', { maxEvents: 12000 });
+        events = data.limitEvents(importedEvents, 12000);
         if (!events.length) throw new Error('No temperature events found');
         selectedSensors = data.summarizeSensors(events).slice(0, 6).map((sensor) => sensor.sensorName);
-        dataLabel = `Loaded ${events.length.toLocaleString()} events from ${file.name}`;
+        const sampled = file.size > 500000 || events.length >= 10000;
+        dataLabel = `Loaded ${events.length.toLocaleString()} events from ${file.name}${sampled ? ' (sampled for speed)' : ''}`;
         sourceLabel = file.name;
         render();
-        showToast(`Loaded ${events.length.toLocaleString()} temperature events.`);
+        showToast(`Loaded ${events.length.toLocaleString()} temperature events${sampled ? ' (sampled for speed)' : ''}.`);
       } catch (error) {
         showToast(`Could not load file: ${error.message}`);
       }

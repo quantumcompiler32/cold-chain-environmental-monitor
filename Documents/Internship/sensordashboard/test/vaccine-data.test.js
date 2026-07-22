@@ -7,6 +7,9 @@ const {
   parseTemperatureEvents,
   summarizeSensors,
   buildChartSeries,
+  getChartHeight,
+  createDemoEvents,
+  buildStatusCounts,
 } = require('../vaccine-data.js');
 
 test('classifies Pfizer ultralow temperatures using the documented profile', () => {
@@ -52,4 +55,33 @@ test('summarizes every package sensor and makes the chart series selectable', ()
   assert.deepEqual(chart.labels, ['2026-07-22T10:00:00Z', '2026-07-22T10:01:00Z']);
   assert.deepEqual(chart.series.map((series) => series.sensorName), ['Pod1', 'Pod2']);
   assert.deepEqual(chart.series[0].values, [-78.5, -80.5]);
+});
+
+test('imports the wide experiment CSV with Pod Fahrenheit columns', () => {
+  const csv = [
+    'date,time,Time Elapsed,Pod1,Pod2,Ambient',
+    ',,,b1,b2,Toutside',
+    ',,,F,F,F',
+    '16-Dec-20,11:25:54,0:00:00,-113.7838,-113.4706,71.7494',
+    '16-Dec-20,11:26:12,0:00:18,-111.98,-112.1,71.7',
+  ].join('\n');
+  const events = parseTemperatureEvents(csv, 'csv');
+  assert.equal(events.length, 4);
+  assert.deepEqual([...new Set(events.map((event) => event.sensor_name))], ['Pod1', 'Pod2']);
+  assert.equal(events[0].temperature_c, -80.99);
+  assert.equal(events[0].status, 'TOO_COLD');
+});
+
+test('demo events visibly include both sides of the safety range', () => {
+  const counts = buildStatusCounts(createDemoEvents());
+  assert.ok(counts.TOO_COLD > 0);
+  assert.ok(counts.TOO_WARM > 0);
+  const summaries = summarizeSensors(createDemoEvents());
+  assert.equal(summaries.find((sensor) => sensor.sensorName === 'Pod3').status, 'TOO_COLD');
+  assert.equal(summaries.find((sensor) => sensor.sensorName === 'Pod11').status, 'TOO_WARM');
+});
+
+test('chart height grows with the number of selected Pods', () => {
+  assert.ok(getChartHeight(6) > getChartHeight(1));
+  assert.equal(getChartHeight(0), getChartHeight(1));
 });

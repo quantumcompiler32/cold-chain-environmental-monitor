@@ -59,23 +59,89 @@
     };
   }
 
-  function parseTemperatureEvents(input, format) {
-    if (Array.isArray(input)) return input.map(normalizeEvent).filter((event) => Number.isFinite(event.temperature_c));
+  function parseDateTime(dateText, timeText) {
+    const dateParts = String(dateText).trim().match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
+    const timeParts = String(timeText).trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (dateParts && timeParts) {
+      const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+      const year = dateParts[3].length === 2 ? 2000 + Number(dateParts[3]) : Number(dateParts[3]);
+      const month = months[dateParts[2][0].toUpperCase() + dateParts[2].slice(1).toLowerCase()];
+      if (month !== undefined) return new Date(Date.UTC(year, month, Number(dateParts[1]), Number(timeParts[1]), Number(timeParts[2]), Number(timeParts[3] || 0))).toISOString();
+    }
+    const parsed = Date.parse(`${dateText} ${timeText} UTC`);
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : '';
+  }
+
+  function parseWideTemperatureCsv(lines, headers, options = {}) {
+    const dateIndex = headers.findIndex((header) => header.toLowerCase() === 'date');
+    const timeIndex = headers.findIndex((header) => header.toLowerCase() === 'time');
+    const podColumns = headers.map((header, index) => ({ header, index })).filter(({ header }) => /^pod\d+$/i.test(header));
+    const dataLines = lines.slice(1);
+    const maxEvents = Number.isFinite(options.maxEvents) ? options.maxEvents : Infinity;
+    const maxRows = Number.isFinite(maxEvents) ? Math.max(1, Math.floor(maxEvents / Math.max(podColumns.length, 1))) : dataLines.length;
+    const rowStride = Math.max(1, Math.ceil(dataLines.length / maxRows));
+    const events = [];
+    dataLines.forEach((line, rowIndex) => {
+      if (rowIndex % rowStride !== 0 || events.length >= maxEvents) return;
+      const values = parseCsvLine(line);
+      const timestamp = parseDateTime(values[dateIndex], values[timeIndex]);
+      if (!timestamp) return;
+      podColumns.forEach(({ header, index }) => {
+        const fahrenheit = Number(values[index]);
+        if (!Number.isFinite(fahrenheit)) return;
+        events.push(normalizeEvent({
+          device_id: 'vaccine_temperature_dataset',
+          timestamp,
+          source_timestamp: timestamp,
+          sensor_name: header,
+          vaccine_type: PROFILE.id,
+          scenario: 'normal',
+          temperature_c: Number(((fahrenheit - 32) * 5 / 9).toFixed(2)),
+        }));
+      });
+    });
+    return events;
+  }
+
+  function limitEvents(events, maxEvents = 12000) {
+    if (!Number.isFinite(maxEvents) || events.length <= maxEvents) return events;
+    const bySensor = new Map();
+    events.forEach((event) => {
+      if (!bySensor.has(event.sensor_name)) bySensor.set(event.sensor_name, []);
+      bySensor.get(event.sensor_name).push(event);
+    });
+    const perSensor = Math.max(1, Math.floor(maxEvents / bySensor.size));
+    return Array.from(bySensor.values()).flatMap((sensorEvents) => {
+      const stride = Math.max(1, Math.ceil(sensorEvents.length / perSensor));
+      return sensorEvents.filter((_, index) => index % stride === 0).slice(0, perSensor);
+    });
+  }
+
+  function getChartHeight(sensorCount) {
+    const count = Math.max(1, Math.min(12, Number(sensorCount) || 1));
+    return Math.min(720, 220 + count * 42);
+  }
+
+  function parseTemperatureEvents(input, format, options = {}) {
+    if (Array.isArray(input)) return limitEvents(input.map(normalizeEvent).filter((event) => Number.isFinite(event.temperature_c)), options.maxEvents);
     if (typeof input !== 'string' || !input.trim()) return [];
 
     if (format === 'json' || input.trim().startsWith('[') || input.trim().startsWith('{')) {
       const parsed = JSON.parse(input);
       const events = Array.isArray(parsed) ? parsed : (parsed.events || parsed.data || [parsed]);
-      return events.map(normalizeEvent).filter((event) => Number.isFinite(event.temperature_c));
+      return limitEvents(events.map(normalizeEvent).filter((event) => Number.isFinite(event.temperature_c)), options.maxEvents);
     }
 
     const lines = input.trim().split(/\r?\n/).filter(Boolean);
     if (lines.length < 2) return [];
     const headers = parseCsvLine(lines[0]).map((header) => header.trim());
+    if (headers.some((header) => header.toLowerCase() === 'date') && headers.some((header) => header.toLowerCase() === 'time') && headers.some((header) => /^pod\d+$/i.test(header))) {
+      return parseWideTemperatureCsv(lines, headers, options);
+    }
     return lines.slice(1).map((line) => {
       const values = parseCsvLine(line);
       return normalizeEvent(Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ''])));
-    }).filter((event) => Number.isFinite(event.temperature_c));
+    }).filter((event) => Number.isFinite(event.temperature_c)).slice(0, options.maxEvents || undefined);
   }
 
   function timestampValue(timestamp) {
@@ -176,9 +242,9 @@
     sensors.forEach((sensorName, sensorIndex) => {
       for (let point = 0; point < 24; point += 1) {
         const base = PROFILE.targetC + Math.sin((point + sensorIndex) / 3) * 0.7 + ((sensorIndex % 5) - 2) * 0.18;
-        const isColdExcursion = sensorIndex === 2 && point >= 16 && point <= 18;
-        const isWarmExcursion = sensorIndex === 10 && point >= 19 && point <= 21;
-        const temperature = isColdExcursion ? -82 + (point - 16) * 0.5 : isWarmExcursion ? -59.2 - (point - 20) * 0.25 : base;
+        const isColdExcursion = sensorIndex === 2 && point >= 20 && point <= 23;
+        const isWarmExcursion = sensorIndex === 10 && point >= 20 && point <= 23;
+        const temperature = isColdExcursion ? -82 + (point - 20) * 0.5 : isWarmExcursion ? -59.2 - (point - 20) * 0.25 : base;
         const sourceTimestamp = new Date(Date.UTC(2020, 11, 16, 11, 25, 54 + point * 10 + sensorIndex));
         const timestamp = new Date(Date.UTC(2026, 6, 21, 8 + point, 0, 0));
         events.push(normalizeEvent({
@@ -213,6 +279,8 @@
     buildExcursionSeries,
     buildReplayOffsetSeries,
     createDemoEvents,
+    limitEvents,
+    getChartHeight,
     toCsv,
   };
 });
