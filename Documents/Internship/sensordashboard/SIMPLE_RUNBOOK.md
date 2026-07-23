@@ -1,86 +1,84 @@
 # Simple runbook
 
-## Dashboard
+Run each command in its own Terminal tab. Create the virtual environment once
+when starting a new session, then activate it in every Python service tab.
 
-From this folder:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python dashboard_bridge.py
-```
-
-In another terminal:
+## 1. Create the environment
 
 ```bash
 cd /Users/mokshjoshi/Documents/Internship/sensordashboard
-python3 -m http.server 8765
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements.txt
 ```
 
-Open `http://127.0.0.1:8765/index.html`, select Vaccine Cold Chain, and use
-the top switcher.
-
-## Live run
-
-1. Open **Live runner**.
-2. Select one or more Pods.
-3. Select one or more scenarios.
-4. Set the interval and events per scenario per Pod.
-5. Optionally upload a CSV. It must have `date`, `time`, and selected Pod columns.
-6. Press **Start live run**. Press **Stop** whenever needed.
-
-Total events requested:
-
-```text
-Pods x scenarios x events per scenario per Pod
-```
-
-Analytics and Raw events update while the bridge receives MQTT events. Raw
-events autoscrolls to the newest event unless you turn that off.
-
-## PostgreSQL
-
-Apply the safe additive schema migration before saving events:
+## 2. Start PostgreSQL and Mosquitto
 
 ```bash
+brew services start postgresql@16
+brew services start mosquitto
+```
+
+## 3. Prepare the database
+
+```bash
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+source .venv/bin/activate
 psql -U mokshjoshi -d iotdb -f create_temperature_table.sql
 ```
 
-The migration adds uncertainty columns and keeps existing `temperature_c` and
-`status` values unchanged. The paper's Type-T accuracy is approximately
-`+/-0.5 C`; it is not the vaccine storage range.
-
-Run the subscriber with database writes:
+## 4. Start the database subscriber
 
 ```bash
-python temperature_subscriber.py --write-db
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+source .venv/bin/activate
+python3 temperature_subscriber.py --write-db
 ```
 
-Run the read-only report:
+## 5. Start the event generator
 
 ```bash
-python analyze_temperature_database.py
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+source .venv/bin/activate
+python3 temperature_event_generator.py \
+  --sensor Pod1 \
+  --vaccine-type pfizer_ultralow \
+  --scenario normal \
+  --interval-ms 500 \
+  --max-events 20
 ```
 
-The report includes raw status counts, borderline counts, near-threshold
-counts, and the percentage of readings whose uncertainty interval crosses a
-storage boundary.
+Run additional generator commands in separate tabs when you want more Pods or
+scenarios. The dashboard does not run these commands.
 
-## Command-line scenarios
+## 6. Start the read-only dashboard adapter
 
 ```bash
-python temperature_event_generator.py --sensor Pod1 --scenario normal --max-events 20
-python temperature_event_generator.py --sensor Pod1 --scenario outlier --max-events 40
-python temperature_event_generator.py --sensor Pod1 --scenario failure --max-events 20
-python temperature_event_generator.py --sensor Pod1 --scenario recovery --max-events 20
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+source .venv/bin/activate
+python3 dashboard_bridge.py
 ```
 
-For Moderna, provide both bounds:
+## 7. Serve the pluggable dashboard
 
 ```bash
-python temperature_event_generator.py --sensor Pod1 --vaccine-type moderna --min-temp -50 --max-temp -15 --scenario normal --max-events 20
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+python3 -m http.server 8765 --bind 127.0.0.1
 ```
 
-More detail is in [DASHBOARD_GUIDE.md](DASHBOARD_GUIDE.md) and
-[SCENARIOS.md](SCENARIOS.md).
+Open <http://127.0.0.1:8765/index.html>.
+
+## Export for Colab
+
+Click **Export all events CSV** in the dashboard. The adapter reads every row
+from PostgreSQL and downloads `temperature_events.csv`.
+
+## Stop
+
+Press `Ctrl+C` in the subscriber, generator, adapter, and web-server tabs.
+Stop the background services only when you are finished:
+
+```bash
+brew services stop mosquitto
+brew services stop postgresql@16
+```

@@ -5,38 +5,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vaccine Raw Events</title>
   <link rel="stylesheet" href="shared.css">
-  <link rel="stylesheet" href="vaccine.css?v=raw-page-2">
+  <link rel="stylesheet" href="vaccine.css?v=readonly-1">
 </head>
 <body>
   <main class="content-scroll vaccine-page raw-page">
     <header class="page-header">
       <div>
-        <div class="eyebrow"><span class="demo-pill">RAW EVENTS</span><span id="rawStatusText">Local event data</span></div>
+        <div class="eyebrow"><span class="demo-pill">POSTGRESQL</span><span id="rawStatusText">Connecting…</span></div>
         <h1>Vaccine raw events</h1>
-        <p>Inspect the complete event text exactly as it is normalized for the dashboard. Live runs appear here automatically.</p>
+        <p>Inspect every event persisted by the MQTT subscriber. This page only reads and filters PostgreSQL results.</p>
       </div>
       <div class="header-actions">
-        <button class="button secondary" id="importButton" type="button">Load CSV / JSON</button>
-        <input id="fileInput" type="file" accept=".csv,.json,application/json,text/csv" hidden>
-        <button class="button secondary" id="resetButton" type="button">Use local data</button>
         <a class="button secondary" href="domain-vaccine.html">Analytics</a>
-        <a class="button primary" href="domain-vaccine-live.html">Live runner</a>
       </div>
     </header>
-    <nav class="dashboard-nav" aria-label="Vaccine dashboard pages">
-      <a class="dashboard-nav-link" href="domain-vaccine.html"><strong>Analytics</strong><span>Live visualizations</span></a>
-      <a class="dashboard-nav-link" href="domain-vaccine-live.html"><strong>Live runner</strong><span>Choose Pods and scenario</span></a>
-      <a class="dashboard-nav-link active" href="domain-vaccine-raw.html" aria-current="page"><strong>Raw events</strong><span>Readable event text</span></a>
-    </nav>
     <section class="card raw-card">
-      <div class="raw-toolbar"><span class="raw-badge" id="rawMode">LOCAL</span><label class="raw-label" for="rawSensorFilter">Sensor:</label><select class="raw-filter" id="rawSensorFilter"><option value="all">ALL PODS</option></select><label class="check-label raw-autoscroll"><input id="rawAutoscroll" type="checkbox" checked> Auto-scroll newest</label><span class="raw-label raw-count">Rows: <span id="rowCount">0</span></span></div>
+      <div class="raw-toolbar">
+        <span class="raw-badge" id="rawMode">POSTGRESQL</span>
+        <label class="raw-label" for="rawSensorFilter">Sensor:</label>
+        <select class="raw-filter" id="rawSensorFilter"><option value="all">ALL PODS</option></select>
+        <label class="raw-label" for="rawScenarioFilter">Scenario:</label>
+        <select class="raw-filter" id="rawScenarioFilter"><option value="all">ALL SCENARIOS</option></select>
+        <span class="raw-label">Newest first · refreshes every 5 seconds</span>
+        <span class="raw-label raw-count">Rows: <span id="rowCount">0</span></span>
+      </div>
       <div class="raw-stream readable-raw-stream" id="rawStream" aria-live="polite"></div>
-      <div class="raw-footer"><div class="raw-stat">EVENTS <span id="statIn">0</span></div><div class="raw-stat">PROFILE <span id="rawProfile">PFIZER ULTRALOW</span></div><div class="raw-stat">SOURCE <span id="rawSource">LOCAL</span></div></div>
+      <div class="raw-footer"><div class="raw-stat">EVENTS <span id="statIn">0</span></div><div class="raw-stat">SOURCE <span id="rawSource">POSTGRESQL</span></div><div class="raw-stat">POLL <span>5 SEC</span></div></div>
     </section>
   </main>
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="vaccine-data.js?v=raw-page-2"></script>
-  <script src="vaccine-bridge.js?v=raw-page-2"></script>
-  <script src="vaccine-raw.js?v=raw-page-2"></script>
+  <script src="vaccine-data.js?v=readonly-1"></script>
+  <script src="vaccine-bridge.js?v=readonly-1"></script>
+  <script src="vaccine-raw.js?v=readonly-1"></script>
 </body>
 </html>

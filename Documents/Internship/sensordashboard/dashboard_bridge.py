@@ -1,407 +1,200 @@
 #!/usr/bin/env python3
-"""Local HTTP/MQTT bridge for the vaccine dashboard live runner.
+"""Read-only HTTP adapter for the vaccine dashboard.
 
-The browser talks to this file over HTTP. The bridge starts one bounded
-generator process per selected Pod, listens to the shared MQTT topic once,
-adds run metadata, and forwards events to analytics/raw pages through SSE or
-the polling fallback in ``vaccine-bridge.js``.
+The event generator, Mosquitto broker, and PostgreSQL subscriber run as
+independent terminal services. This process never starts a generator, listens
+to MQTT, or writes to PostgreSQL. It only reads persisted events for the
+browser and exports the same database rows as CSV.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import os
-import queue
-import re
-import subprocess
-import sys
-import tempfile
-import threading
-import uuid
-from collections import deque
-from datetime import datetime, timezone
+from datetime import date, datetime, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
-import paho.mqtt.client as mqtt
 
-from temperature_uncertainty import enrich_event
-
-MQTT_BROKER = "localhost"
-MQTT_PORT = 1883
-MQTT_TOPIC = "devices/temperature"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
-SCENARIOS = {"normal", "outlier", "failure", "recovery"}
-SENSOR_PATTERN = re.compile(r"^Pod(?:[1-9]|1[0-9]|20)$", re.IGNORECASE)
 
-PROFILES = {
-    "pfizer_ultralow": {"id": "pfizer_ultralow", "label": "Pfizer ultralow", "target_c": -78.5, "min_c": -80.0, "max_c": -60.0},
-    "moderna": {
-        "id": "moderna",
-        "label": "Moderna / Spikevax",
-        "target_c": -32.5,
-        "min_c": None,
-        "max_c": None,
-        "suggested_min_c": -50.0,
-        "suggested_max_c": -15.0,
-        "source_url": "https://products.modernatx.com/spikevaxpro/dosing-and-administration",
-    },
-}
+# These are the PostgreSQL column names selected by the adapter. Keep the
+# order stable so the CSV export is deterministic and easy to load in Colab.
+EVENT_COLUMNS = (
+    "id",
+    "device_id",
+    "event_timestamp",
+    "source_timestamp",
+    "sensor_name",
+    "vaccine_type",
+    "scenario",
+    "temperature_c",
+    "status",
+    "sensor_tolerance_c",
+    "temperature_min_possible_c",
+    "temperature_max_possible_c",
+    "storage_min_c",
+    "storage_max_c",
+    "uncertainty_status",
+    "boundary_crossing",
+    "measurement_confidence",
+    "received_at",
+)
+
+CSV_COLUMNS = (
+    "event_id",
+    "device_id",
+    "timestamp",
+    "source_timestamp",
+    "sensor_name",
+    "vaccine_type",
+    "scenario",
+    "temperature_c",
+    "status",
+    "sensor_tolerance_c",
+    "temperature_min_possible_c",
+    "temperature_max_possible_c",
+    "storage_min_c",
+    "storage_max_c",
+    "uncertainty_status",
+    "boundary_crossing",
+    "measurement_confidence",
+    "received_at",
+)
+
+EVENT_QUERY = """
+SELECT id, device_id, event_timestamp, source_timestamp, sensor_name,
+       vaccine_type, scenario, temperature_c, status, sensor_tolerance_c,
+       temperature_min_possible_c, temperature_max_possible_c, storage_min_c,
+       storage_max_c, uncertainty_status, boundary_crossing,
+       measurement_confidence, received_at
+FROM temperature_events
+ORDER BY event_timestamp ASC, id ASC
+"""
 
 
-def resolve_profile(profile_id: str, min_temp: Any = None, max_temp: Any = None) -> dict[str, Any]:
-    """Return a validated profile payload suitable for the generator."""
-    # Reject unknown profiles before reading any of the optional bound fields.
-    if profile_id not in PROFILES:
-        raise ValueError(f"Unknown vaccine profile: {profile_id}")
-    if (min_temp is None) != (max_temp is None):
-        raise ValueError("Provide both min_temp and max_temp together.")
-    profile = dict(PROFILES[profile_id])
-    if profile["min_c"] is None and (min_temp is None or max_temp is None):
-        raise ValueError("The Moderna profile requires custom min_temp and max_temp bounds.")
-    if min_temp is not None:
-        try:
-            profile["min_c"] = float(min_temp)
-            profile["max_c"] = float(max_temp)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Temperature bounds must be numeric.") from exc
-    if profile["min_c"] >= profile["max_c"]:
-        raise ValueError("min_temp must be less than max_temp.")
-    return profile
+class DatabaseUnavailable(RuntimeError):
+    """Raised when the dashboard cannot read PostgreSQL."""
 
 
-def validate_start_request(payload: dict[str, Any]) -> dict[str, Any]:
-    """Validate a browser start request at the public HTTP seam."""
-    # This is the trust boundary for browser input: normalize and validate it
-    # before any child process or database connection is created.
-    if not isinstance(payload, dict):
-        raise ValueError("Request body must be a JSON object.")
-    profile_id = str(payload.get("profile", "pfizer_ultralow"))
-    profile = resolve_profile(profile_id, payload.get("min_temp"), payload.get("max_temp"))
-    raw_scenarios = payload.get("scenarios")
-    if raw_scenarios is None:
-        raw_scenarios = [payload.get("scenario", "outlier")]
-    if not isinstance(raw_scenarios, list) or not raw_scenarios:
-        raise ValueError("Select at least one scenario.")
-    scenarios = []
-    for raw_scenario in raw_scenarios:
-        scenario = str(raw_scenario)
-        if scenario not in SCENARIOS:
-            raise ValueError(f"Unknown scenario: {scenario}")
-        if scenario not in scenarios:
-            scenarios.append(scenario)
-    sensors = payload.get("sensors")
-    if not isinstance(sensors, list) or not sensors:
-        raise ValueError("Select at least one Pod.")
-    normalized_sensors = []
-    for sensor in sensors:
-        name = str(sensor)
-        if not SENSOR_PATTERN.fullmatch(name):
-            raise ValueError(f"Invalid Pod: {name}")
-        if name not in normalized_sensors:
-            normalized_sensors.append(name)
-    try:
-        interval_ms = int(payload.get("interval_ms", 500))
-        max_events = int(payload.get("max_events", 20))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("interval_ms and max_events must be integers.") from exc
-    if interval_ms < 50:
-        raise ValueError("interval_ms must be at least 50.")
-    if max_events < 1 or max_events > 5000:
-        raise ValueError("max_events must be between 1 and 5000.")
+def postgres_settings() -> dict[str, Any]:
+    """Build connection settings without exposing credentials to the client."""
     return {
-        "profile": profile,
-        "scenario": scenarios[0],
-        "scenarios": scenarios,
-        "sensors": normalized_sensors,
-        "interval_ms": interval_ms,
-        "max_events": max_events,
-        "save_to_database": bool(payload.get("save_to_database", False)),
-        "source_file_id": str(payload.get("source_file_id", "")) or None,
-        "source_file_name": str(payload.get("source_file_name", "")) or None,
+        "host": os.environ.get("POSTGRES_HOST", "localhost"),
+        "port": int(os.environ.get("POSTGRES_PORT", "5432")),
+        "dbname": os.environ.get("POSTGRES_DB", "iotdb"),
+        "user": os.environ.get("POSTGRES_USER", "mokshjoshi"),
     }
 
 
-def build_generator_command(
-    request: dict[str, Any],
-    sensor: str,
-    generator_path: Path,
-    scenario: str | None = None,
-) -> list[str]:
-    """Build one deterministic child-process command for a selected Pod."""
-    # Each process gets one Pod so the run can finish only after every selected
-    # child has emitted its requested bounded number of events.
-    profile = request["profile"]
-    command = [
-        sys.executable,
-        str(generator_path),
-        "--sensor", sensor,
-        "--vaccine-type", profile["id"],
-        "--scenario", scenario or request["scenario"],
-        "--interval-ms", str(request["interval_ms"]),
-        "--max-events", str(request["max_events"]),
-    ]
-    if profile["id"] == "moderna":
-        command.extend(["--min-temp", str(profile["min_c"]), "--max-temp", str(profile["max_c"])])
-    if request.get("source_path"):
-        command.extend(["--csv-file", str(request["source_path"])])
-    return command
+def connect_postgres(**settings):
+    # Import lazily so the bridge can still be unit-tested without a local
+    # driver or running PostgreSQL.
+    try:
+        import psycopg
+    except ImportError as exc:  # pragma: no cover - depends on local setup
+        raise DatabaseUnavailable("psycopg is not installed") from exc
+    return psycopg.connect(**settings)
 
 
-class DashboardState:
-    """Own MQTT events, SSE subscribers, database writes, and run lifecycle."""
+def serialize_value(value: Any) -> Any:
+    """Convert PostgreSQL date/time values to JSON/CSV-safe values."""
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    return value
 
-    def __init__(self, project_dir: Path, generator_path: Path):
-        self.project_dir = project_dir
-        self.generator_path = generator_path
-        self.lock = threading.RLock()
-        self.events: deque[dict[str, Any]] = deque(maxlen=12000)
-        self.subscribers: set[queue.Queue[dict[str, Any]]] = set()
-        self.event_sequence = 0
-        self.run: dict[str, Any] = {"running": False, "state": "idle", "message": "Ready to run."}
-        self.processes: dict[str, subprocess.Popen[str]] = {}
-        self.uploads: dict[str, Path] = {}
-        self.upload_directory = self.project_dir / ".dashboard_uploads"
-        self.mqtt_connected = False
-        self.db_connection = None
-        self.mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
-        self.mqtt_client.on_connect = self._on_connect
-        self.mqtt_client.on_disconnect = self._on_disconnect
-        self.mqtt_client.on_message = self._on_message
 
-    def connect_mqtt(self) -> None:
-        # MQTT is optional at startup; the HTTP API remains available so the
-        # UI can explain that the broker is offline instead of crashing.
+class DatabaseReader:
+    """Deep read-only module behind the dashboard's small HTTP interface."""
+
+    def __init__(
+        self,
+        connect_factory: Callable[..., Any] = connect_postgres,
+        settings: dict[str, Any] | None = None,
+    ):
+        self.connect_factory = connect_factory
+        self.settings = settings if settings is not None else postgres_settings()
+
+    def _connect(self):
         try:
-            self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-            self.mqtt_client.loop_start()
-        except OSError:
-            self.mqtt_connected = False
-
-    def _on_connect(self, client, userdata, flags, reason_code, properties):
-        self.mqtt_connected = reason_code == 0
-        if self.mqtt_connected:
-            # Subscribe once here rather than once per generator process.
-            client.subscribe(MQTT_TOPIC, qos=0)
-        self.broadcast({"type": "bridge_status", "mqtt_connected": self.mqtt_connected})
-
-    def _on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
-        self.mqtt_connected = False
-        self.broadcast({"type": "bridge_status", "mqtt_connected": False})
-
-    def _on_message(self, client, userdata, message):
-        try:
-            event = json.loads(message.payload.decode("utf-8"))
-            if not isinstance(event, dict):
-                return
-            self.publish_event(event)
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            self.broadcast({"type": "error", "message": "The bridge received invalid JSON from MQTT."})
-
-    def publish_event(self, event: dict[str, Any]) -> None:
-        with self.lock:
-            # A monotonic bridge sequence prevents same-second generator
-            # timestamps from being reordered in the browser.
-            self.event_sequence += 1
-            enriched = dict(event)
-            if "uncertainty_status" not in enriched:
-                profile = self.run.get("profile_id")
-                profile_data = PROFILES.get(profile or str(event.get("vaccine_type", "")))
-                minimum = self.run.get("min_temp") if profile_data and profile_data["min_c"] is None else (profile_data or {}).get("min_c")
-                maximum = self.run.get("max_temp") if profile_data and profile_data["max_c"] is None else (profile_data or {}).get("max_c")
-                if minimum is not None and maximum is not None and enriched.get("temperature_c") is not None:
-                    enriched = enrich_event(enriched, minimum, maximum)
-            enriched["event_id"] = str(self.event_sequence)
-            enriched["event_sequence"] = self.event_sequence
-            enriched["received_at"] = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-            if self.run["running"]:
-                enriched["run_id"] = self.run["run_id"]
-            self.events.append(enriched)
-            if self.run["running"]:
-                self.run["events_received"] = len(self.events)
-            if self.db_connection is not None:
-                self._write_database(enriched)
-            payload = {"type": "event", "event": enriched}
-        self.broadcast(payload)
-
-    def _write_database(self, event: dict[str, Any]) -> None:
-        # Database persistence is intentionally best-effort only when the run
-        # was started with the save toggle enabled.
-        with self.db_connection.cursor() as cursor:
-            cursor.execute(
-                """INSERT INTO temperature_events
-                (device_id, event_timestamp, source_timestamp, sensor_name, vaccine_type, scenario,
-                 temperature_c, status, sensor_tolerance_c, temperature_min_possible_c,
-                 temperature_max_possible_c, storage_min_c, storage_max_c, uncertainty_status,
-                 boundary_crossing, measurement_confidence)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (event.get("device_id"), event.get("timestamp"), event.get("source_timestamp") or None,
-                 event.get("sensor_name"), event.get("vaccine_type"), event.get("scenario"),
-                 float(event.get("temperature_c")), event.get("status"),
-                 event.get("sensor_tolerance_c", 0.5), event.get("temperature_min_possible_c"),
-                 event.get("temperature_max_possible_c"), event.get("storage_min_c"),
-                 event.get("storage_max_c"), event.get("uncertainty_status"),
-                 bool(event.get("boundary_crossing", False)), event.get("measurement_confidence")),
-            )
-        self.db_connection.commit()
-
-    def add_subscriber(self) -> queue.Queue[dict[str, Any]]:
-        subscriber: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=200)
-        with self.lock:
-            self.subscribers.add(subscriber)
-            subscriber.put_nowait({"type": "run_status", **self.run})
-        return subscriber
-
-    def remove_subscriber(self, subscriber: queue.Queue[dict[str, Any]]) -> None:
-        with self.lock:
-            self.subscribers.discard(subscriber)
-
-    def broadcast(self, payload: dict[str, Any]) -> None:
-        with self.lock:
-            for subscriber in list(self.subscribers):
-                try:
-                    subscriber.put_nowait(payload)
-                except queue.Full:
-                    try:
-                        subscriber.get_nowait()
-                        subscriber.put_nowait(payload)
-                    except queue.Empty:
-                        pass
-
-    def status(self) -> dict[str, Any]:
-        with self.lock:
-            return {**self.run, "events_received": len(self.events), "mqtt_connected": self.mqtt_connected}
-
-    def start_run(self, payload: dict[str, Any]) -> dict[str, Any]:
-        request = validate_start_request(payload)
-        with self.lock:
-            # Keeping this check under the same lock as process creation makes
-            # two browser tabs unable to start overlapping simulations.
-            if self.run["running"]:
-                raise ValueError("A live run is already running.")
-            if request["source_file_id"]:
-                source_path = self.uploads.get(request["source_file_id"])
-                if source_path is None or not source_path.exists():
-                    raise ValueError("The selected CSV upload is no longer available. Upload it again.")
-                request["source_path"] = source_path
-            if request["save_to_database"]:
-                self._open_database()
-            self.events.clear()
-            run_id = uuid.uuid4().hex[:12]
-            self.run = {"running": True, "state": "running", "run_id": run_id, "message": f"Starting {len(request['sensors'])} Pods across {len(request['scenarios'])} scenarios…", "sensors": request["sensors"], "scenarios": request["scenarios"], "requested_events": len(request["sensors"]) * len(request["scenarios"]) * request["max_events"], "events_received": 0, "profile_id": request["profile"]["id"], "min_temp": request["profile"]["min_c"], "max_temp": request["profile"]["max_c"], "max_events": request["max_events"], "source_file_id": request.get("source_file_id"), "source_file_name": request.get("source_file_name")}
-            self.broadcast({"type": "run_status", **self.run})
-            try:
-                for sensor in request["sensors"]:
-                    for scenario in request["scenarios"]:
-                        worker_key = f"{sensor}:{scenario}"
-                        process = subprocess.Popen(
-                            build_generator_command(request, sensor, self.generator_path, scenario),
-                            cwd=self.project_dir,
-                            # Generator output is useful at the terminal but is
-                            # not part of the browser protocol. Discarding stdout
-                            # avoids filling a pipe during a larger run.
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.PIPE,
-                            text=True,
-                        )
-                        self.processes[worker_key] = process
-                        threading.Thread(target=self._watch_process, args=(worker_key, process, run_id), daemon=True).start()
-            except OSError as exc:
-                self._stop_processes_locked()
-                self._finish_locked("failed", f"Could not start generator: {exc}")
-                raise ValueError(str(exc)) from exc
-        return self.status()
-
-    def _watch_process(self, worker_key: str, process: subprocess.Popen[str], run_id: str) -> None:
-        stdout, stderr = process.communicate()
-        with self.lock:
-            self.processes.pop(worker_key, None)
-            if self.run.get("run_id") != run_id:
-                return
-            if process.returncode != 0 and self.run["state"] == "running":
-                message = stderr.strip().splitlines()[-1] if stderr.strip() else f"{worker_key} stopped with code {process.returncode}."
-                self._stop_processes_locked()
-                self._finish_locked("failed", message)
-            elif not self.processes and self.run["state"] == "running":
-                self._finish_locked("completed", "All selected Pods finished generating events.")
-
-    def stop_run(self) -> dict[str, Any]:
-        with self.lock:
-            if not self.run["running"]:
-                return self.status()
-            self._stop_processes_locked()
-            self._finish_locked("stopped", "Live run stopped.")
-            return self.status()
-
-    def _stop_processes_locked(self) -> None:
-        # Terminate normally first, then kill only children that ignore the
-        # two-second cleanup window.
-        processes = list(self.processes.values())
-        self.processes.clear()
-        for process in processes:
-            if process.poll() is None:
-                process.terminate()
-        for process in processes:
-            try:
-                process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                process.kill()
-
-    def _finish_locked(self, state: str, message: str) -> None:
-        # The final status is broadcast so all open dashboard pages can show
-        # completed, stopped, or failed without another user action.
-        self.run.update({"running": False, "state": state, "message": message, "events_received": len(self.events)})
-        if self.db_connection is not None:
-            self.db_connection.close()
-            self.db_connection = None
-        self.broadcast({"type": "run_status", **self.run})
-
-    def _open_database(self) -> None:
-        try:
-            import psycopg
-            self.db_connection = psycopg.connect(host="localhost", port=5432, dbname="iotdb", user="mokshjoshi")
+            return self.connect_factory(**self.settings)
+        except DatabaseUnavailable:
+            raise
         except Exception as exc:
-            raise ValueError(f"PostgreSQL is unavailable: {exc}") from exc
+            raise DatabaseUnavailable(str(exc)) from exc
 
-    def upload_source(self, content: bytes, filename: str) -> dict[str, Any]:
-        """Store one local CSV upload for a later bounded generator run."""
-        if not content:
-            raise ValueError("The uploaded CSV is empty.")
-        if len(content) > 100 * 1024 * 1024:
-            raise ValueError("The uploaded CSV must be smaller than 100 MB.")
-        if not filename.lower().endswith(".csv"):
-            raise ValueError("Upload a CSV file for live replay.")
-        self.upload_directory.mkdir(parents=True, exist_ok=True)
-        source_id = uuid.uuid4().hex[:12]
-        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", os.path.basename(filename)) or "uploaded.csv"
-        path = self.upload_directory / f"{source_id}-{safe_name}"
-        path.write_bytes(content)
-        with self.lock:
-            self.uploads[source_id] = path
-        return {"source_file_id": source_id, "filename": filename, "bytes": len(content)}
-
-    def cleanup_uploads(self) -> None:
-        """Remove only temporary uploads created by this bridge process."""
-        with self.lock:
-            paths = list(self.uploads.values())
-            self.uploads.clear()
-        for path in paths:
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
+    def _rows(self, query: str) -> list[dict[str, Any]]:
         try:
-            self.upload_directory.rmdir()
-        except OSError:
-            pass
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    # The adapter cannot mutate data even if a future query is
+                    # accidentally changed from SELECT to a write statement.
+                    cursor.execute("SET TRANSACTION READ ONLY")
+                    cursor.execute(query)
+                    rows = cursor.fetchall()
+                    columns = []
+                    for column in cursor.description:
+                        name = getattr(column, "name", None)
+                        columns.append(name if name is not None else column[0])
+        except DatabaseUnavailable:
+            raise
+        except Exception as exc:
+            raise DatabaseUnavailable(str(exc)) from exc
+
+        return [
+            {column: serialize_value(value) for column, value in zip(columns, row)}
+            for row in rows
+        ]
+
+    def check(self) -> None:
+        """Verify that PostgreSQL is reachable without changing its state."""
+        self._rows("SELECT 1")
+
+    def fetch_events(self) -> list[dict[str, Any]]:
+        """Return every stored event in dashboard vocabulary and DB order."""
+        rows = self._rows(EVENT_QUERY)
+        events = []
+        for row in rows:
+            event = {
+                "event_id": str(row["id"]),
+                "device_id": row["device_id"],
+                "timestamp": row["event_timestamp"],
+                "source_timestamp": row["source_timestamp"] or "",
+                "sensor_name": row["sensor_name"],
+                "vaccine_type": row["vaccine_type"],
+                "scenario": row["scenario"],
+                "temperature_c": row["temperature_c"],
+                "status": row["status"],
+                "sensor_tolerance_c": row["sensor_tolerance_c"],
+                "temperature_min_possible_c": row["temperature_min_possible_c"],
+                "temperature_max_possible_c": row["temperature_max_possible_c"],
+                "storage_min_c": row["storage_min_c"],
+                "storage_max_c": row["storage_max_c"],
+                "uncertainty_status": row["uncertainty_status"],
+                "boundary_crossing": row["boundary_crossing"],
+                "measurement_confidence": row["measurement_confidence"],
+                "received_at": row["received_at"],
+            }
+            events.append(event)
+        return events
+
+    def export_csv(self) -> str:
+        """Export every stored event, not the browser's filtered view."""
+        output = io.StringIO(newline="")
+        writer = csv.writer(output, lineterminator="\n")
+        writer.writerow(CSV_COLUMNS)
+        for event in self.fetch_events():
+            writer.writerow([event.get(column, "") for column in CSV_COLUMNS])
+        return output.getvalue()
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
-    state: DashboardState
+    reader: DatabaseReader
 
     def _headers(self, content_type: str = "application/json") -> None:
         self.send_header("Content-Type", content_type)
@@ -416,108 +209,70 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _csv(self, content: str) -> None:
+        body = content.encode("utf-8")
+        self.send_response(200)
+        self._headers("text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", "attachment; filename=temperature_events.csv")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.end_headers()
 
     def do_GET(self):
         path = urlparse(self.path).path
         if path == "/health":
-            self._json(200, {"ok": True, "mqtt_connected": self.state.mqtt_connected})
-        elif path == "/api/profiles":
-            self._json(200, list(PROFILES.values()))
-        elif path == "/api/run/status":
-            self._json(200, self.state.status())
-        elif path == "/api/events":
-            self._json(200, list(self.state.events))
-        elif path == "/api/events/stream":
-            self._stream()
-        else:
-            self._json(404, {"error": "Not found"})
-
-    def _stream(self):
-        # Every subscriber gets its own bounded queue; a slow browser cannot
-        # block MQTT delivery to the other pages.
-        subscriber = self.state.add_subscriber()
-        self.send_response(200)
-        self._headers("text/event-stream")
-        self.send_header("Connection", "keep-alive")
-        self.end_headers()
-        try:
-            while True:
-                try:
-                    payload = subscriber.get(timeout=15)
-                    self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode("utf-8"))
-                except queue.Empty:
-                    self.wfile.write(b": keep-alive\n\n")
-                self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
-            pass
-        finally:
-            self.state.remove_subscriber(subscriber)
+            try:
+                self.reader.check()
+                self._json(200, {"ok": True, "database_connected": True, "read_only": True})
+            except DatabaseUnavailable as exc:
+                self._json(200, {"ok": True, "database_connected": False, "read_only": True, "error": str(exc)})
+            return
+        if path == "/api/events":
+            try:
+                events = self.reader.fetch_events()
+                self._json(200, {"events": events, "count": len(events), "source": "postgresql"})
+            except DatabaseUnavailable as exc:
+                self._json(503, {"error": str(exc), "database_connected": False})
+            return
+        if path == "/api/events/export.csv":
+            try:
+                self._csv(self.reader.export_csv())
+            except DatabaseUnavailable as exc:
+                self._json(503, {"error": str(exc), "database_connected": False})
+            return
+        self._json(404, {"error": "Not found"})
 
     def do_POST(self):
-        path = urlparse(self.path).path
-        length = int(self.headers.get("Content-Length", "0"))
-        if path == "/api/run/source":
-            try:
-                content = self.rfile.read(length)
-                filename = self.headers.get("X-Filename", "uploaded.csv")
-                self._json(201, self.state.upload_source(content, filename))
-            except ValueError as exc:
-                self._json(400, {"error": str(exc)})
-            return
-        try:
-            payload = json.loads(self.rfile.read(length) or b"{}")
-        except json.JSONDecodeError:
-            self._json(400, {"error": "Request body must be valid JSON."})
-            return
-        try:
-            if path == "/api/run/start":
-                result = self.state.start_run(payload)
-                self._json(202, result)
-            elif path == "/api/run/stop":
-                self._json(200, self.state.stop_run())
-            else:
-                self._json(404, {"error": "Not found"})
-        except ValueError as exc:
-            self._json(400, {"error": str(exc)})
+        # Explicitly reject all mutation verbs; this adapter is read-only.
+        self._json(405, {"error": "The dashboard bridge is read-only."})
 
     def log_message(self, format, *args):
-        print(f"[bridge] {self.address_string()} - {format % args}")
+        print(f"[dashboard-read-only] {self.address_string()} - {format % args}")
 
 
 def main() -> int:
-    # Keep the bridge local-only by default. The host/port flags are useful for
-    # local testing but should not be changed to expose this simulation publicly.
-    parser = argparse.ArgumentParser(description="Run the local vaccine dashboard MQTT bridge.")
+    parser = argparse.ArgumentParser(description="Run the read-only vaccine dashboard database adapter.")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     args = parser.parse_args()
-    project_dir = Path(__file__).resolve().parent
-    generator_path = project_dir / "temperature_event_generator.py"
-    if not generator_path.exists():
-        print(f"ERROR: generator not found at {generator_path}", file=sys.stderr)
-        return 1
-    state = DashboardState(project_dir, generator_path)
-    DashboardHandler.state = state
-    state.connect_mqtt()
+    DashboardHandler.reader = DatabaseReader()
     server = ThreadingHTTPServer((args.host, args.port), DashboardHandler)
-    print(f"Dashboard bridge: http://{args.host}:{args.port}")
-    print(f"MQTT: {MQTT_BROKER}:{MQTT_PORT} ({'connected' if state.mqtt_connected else 'offline'})")
+    print(f"Read-only dashboard adapter: http://{args.host}:{args.port}")
+    print("Source: PostgreSQL temperature_events")
+    print("The event generator and MQTT subscriber must be run separately in the terminal.")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        state.stop_run()
-        state.cleanup_uploads()
-        state.mqtt_client.loop_stop()
-        state.mqtt_client.disconnect()
         server.server_close()
     return 0
 

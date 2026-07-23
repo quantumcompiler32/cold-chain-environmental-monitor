@@ -1,145 +1,48 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const {
-  PROFILE,
-  classifyTemperature,
-  parseTemperatureEvents,
-  summarizeSensors,
-  buildChartSeries,
-  getChartHeight,
-  createDemoEvents,
-  buildStatusCounts,
-  getProfile,
-  normalizeEvent,
-  classifyUncertainty,
-  buildScenarioOutcomeSeries,
-  buildSensorSpreadSeries,
-} = require('../vaccine-data.js');
+const { normalizeEvent, statusLabel, summarize } = require('../vaccine-data.js');
 
-test('classifies Pfizer ultralow temperatures using the documented profile', () => {
-  assert.equal(classifyTemperature(-78.5), 'STABLE');
-  assert.equal(classifyTemperature(-79.8), 'ACCEPTABLE');
-  assert.equal(classifyTemperature(-80.01), 'TOO_COLD');
-  assert.equal(classifyTemperature(-59.99), 'TOO_WARM');
-  assert.equal(PROFILE.lowerLimitC, -80);
-  assert.equal(PROFILE.upperLimitC, -60);
-});
-
-test('parses the temperature project CSV into the dashboard event vocabulary', () => {
-  const csv = [
-    'id,device_id,event_timestamp,source_timestamp,sensor_name,vaccine_type,scenario,temperature_c,status,received_at',
-    '1,device-a,2026-07-22 10:00:00-07,2020-12-16 11:25:54,Pod2,pfizer_ultralow,recovery,-79.7,ACCEPTABLE,2026-07-22 10:00:01-07',
-  ].join('\n');
-  const [event] = parseTemperatureEvents(csv, 'csv');
-  assert.deepEqual({ ...event, sensor_tolerance_c: undefined, temperature_min_possible_c: undefined, temperature_max_possible_c: undefined, storage_min_c: undefined, storage_max_c: undefined, uncertainty_status: undefined, boundary_crossing: undefined, measurement_confidence: undefined }, {
-    event_id: '2026-07-22 10:00:01-07',
-    device_id: 'device-a',
-    timestamp: '2026-07-22 10:00:00-07',
-    received_at: '2026-07-22 10:00:01-07',
-    source_timestamp: '2020-12-16 11:25:54',
-    sensor_name: 'Pod2',
+test('normalizes a stored PostgreSQL event without changing its status', () => {
+  const event = normalizeEvent({
+    event_id: 7,
+    event_timestamp: '2026-07-23T10:00:00Z',
+    sensor_name: 'Pod1',
     vaccine_type: 'pfizer_ultralow',
-    scenario: 'recovery',
-    temperature_c: -79.7,
-    status: 'ACCEPTABLE',
-    sensor_tolerance_c: undefined,
-    temperature_min_possible_c: undefined,
-    temperature_max_possible_c: undefined,
-    storage_min_c: undefined,
-    storage_max_c: undefined,
-    uncertainty_status: undefined,
-    boundary_crossing: undefined,
-    measurement_confidence: undefined,
+    scenario: 'normal',
+    temperature_c: -78.5,
+    status: 'STABLE',
   });
-  assert.equal(event.uncertainty_status, 'BORDERLINE_COLD');
-  assert.equal(event.boundary_crossing, true);
+
+  assert.equal(event.event_id, '7');
+  assert.equal(event.vaccine_label, 'Pfizer ultralow');
+  assert.equal(event.status, 'STABLE');
+  assert.equal(event.storage_min_c, -80);
 });
 
-test('summarizes every package sensor and makes the chart series selectable', () => {
-  const events = [
-    { sensor_name: 'Pod1', temperature_c: -78.5, timestamp: '2026-07-22T10:00:00Z', status: 'STABLE' },
-    { sensor_name: 'Pod1', temperature_c: -80.5, timestamp: '2026-07-22T10:01:00Z', status: 'TOO_COLD' },
-    { sensor_name: 'Pod2', temperature_c: -59, timestamp: '2026-07-22T10:00:00Z', status: 'TOO_WARM' },
-  ];
-  const summaries = summarizeSensors(events);
-  assert.deepEqual(summaries.map((sensor) => sensor.sensorName), ['Pod1', 'Pod2']);
-  assert.equal(summaries[0].latestTemperatureC, -80.5);
-  assert.equal(summaries[0].status, 'TOO_COLD');
-  assert.equal(summaries[0].excursionCount, 1);
-
-  const chart = buildChartSeries(events, ['Pod1', 'Pod2']);
-  assert.deepEqual(chart.labels, ['2026-07-22T10:00:00Z', '2026-07-22T10:01:00Z']);
-  assert.deepEqual(chart.series.map((series) => series.sensorName), ['Pod1', 'Pod2']);
-  assert.deepEqual(chart.series[0].values, [-78.5, -80.5]);
+test('derives a missing status from the stored profile bounds', () => {
+  assert.equal(normalizeEvent({ vaccine_type: 'pfizer_ultralow', temperature_c: -81 }).status, 'TOO_COLD');
+  assert.equal(normalizeEvent({ vaccine_type: 'pfizer_ultralow', temperature_c: -59 }).status, 'TOO_WARM');
+  assert.equal(normalizeEvent({ vaccine_type: 'moderna', temperature_c: -32.5 }).status, 'STABLE');
 });
 
-test('imports the wide experiment CSV with Pod Fahrenheit columns', () => {
-  const csv = [
-    'date,time,Time Elapsed,Pod1,Pod2,Ambient',
-    ',,,b1,b2,Toutside',
-    ',,,F,F,F',
-    '16-Dec-20,11:25:54,0:00:00,-113.7838,-113.4706,71.7494',
-    '16-Dec-20,11:26:12,0:00:18,-111.98,-112.1,71.7',
-  ].join('\n');
-  const events = parseTemperatureEvents(csv, 'csv');
-  assert.equal(events.length, 4);
-  assert.deepEqual([...new Set(events.map((event) => event.sensor_name))], ['Pod1', 'Pod2']);
-  assert.equal(events[0].temperature_c, -80.99);
-  assert.equal(events[0].status, 'TOO_COLD');
+test('summarizes all database events for the dashboard', () => {
+  const summary = summarize([
+    normalizeEvent({ sensor_name: 'Pod1', temperature_c: -78, status: 'STABLE', timestamp: '2026-07-23T10:00:00Z' }),
+    normalizeEvent({ sensor_name: 'Pod1', temperature_c: -81, status: 'TOO_COLD', timestamp: '2026-07-23T10:01:00Z' }),
+    normalizeEvent({ sensor_name: 'Pod2', temperature_c: -59, status: 'TOO_WARM', timestamp: '2026-07-23T10:02:00Z' }),
+  ]);
+
+  assert.equal(summary.total, 3);
+  assert.equal(summary.sensors, 2);
+  assert.equal(summary.outOfRange, 2);
+  assert.equal(summary.statuses.STABLE, 1);
+  assert.equal(summary.statuses.TOO_COLD, 1);
+  assert.equal(summary.statuses.TOO_WARM, 1);
+  assert.equal(summary.latest.sensor_name, 'Pod2');
 });
 
-test('demo events visibly include both sides of the safety range', () => {
-  const counts = buildStatusCounts(createDemoEvents());
-  assert.ok(counts.TOO_COLD > 0);
-  assert.ok(counts.TOO_WARM > 0);
-  const summaries = summarizeSensors(createDemoEvents());
-  assert.equal(summaries.find((sensor) => sensor.sensorName === 'Pod3').status, 'TOO_COLD');
-  assert.equal(summaries.find((sensor) => sensor.sensorName === 'Pod11').status, 'TOO_WARM');
-});
-
-test('chart height stays fixed for the best-fit analytics view', () => {
-  assert.equal(getChartHeight(1), 340);
-  assert.equal(getChartHeight(6), getChartHeight(1));
-  assert.equal(getChartHeight(20), getChartHeight(1));
-});
-
-test('classifies Moderna events using custom bounds', () => {
-  const profile = getProfile('moderna', { min_temp: -35, max_temp: -25 });
-  assert.equal(normalizeEvent({ sensor_name: 'Pod4', timestamp: '2026-07-22T10:00:00Z', temperature_c: -32.5 }, profile).status, 'STABLE');
-  assert.equal(normalizeEvent({ sensor_name: 'Pod4', timestamp: '2026-07-22T10:00:01Z', temperature_c: -36 }, profile).status, 'TOO_COLD');
-  assert.equal(normalizeEvent({ sensor_name: 'Pod4', timestamp: '2026-07-22T10:00:02Z', temperature_c: -24 }, profile).status, 'TOO_WARM');
-});
-
-test('keeps raw status separate from sensor uncertainty', () => {
-  assert.equal(classifyUncertainty(-80.2, PROFILE), 'BORDERLINE_COLD');
-  const event = normalizeEvent({ temperature_c: -80.2, sensor_name: 'Pod1' }, PROFILE);
-  assert.equal(event.status, 'TOO_COLD');
-  assert.equal(event.uncertainty_status, 'BORDERLINE_COLD');
-  assert.equal(event.temperature_min_possible_c, -80.7);
-  assert.equal(event.temperature_max_possible_c, -79.7);
-});
-
-test('builds useful multi-scenario comparison series', () => {
-  const events = [
-    normalizeEvent({ scenario: 'normal', sensor_name: 'Pod1', temperature_c: -78.5 }, PROFILE),
-    normalizeEvent({ scenario: 'failure', sensor_name: 'Pod1', temperature_c: -55 }, PROFILE),
-    normalizeEvent({ scenario: 'outlier', sensor_name: 'Pod2', temperature_c: -80.2 }, PROFILE),
-  ];
-  const outcomes = buildScenarioOutcomeSeries(events);
-  assert.equal(outcomes.find((item) => item.label === 'failure').tooWarm, 1);
-  assert.equal(outcomes.find((item) => item.label === 'outlier').borderline, 1);
-  assert.equal(buildSensorSpreadSeries(events, ['Pod1']).length, 1);
-});
-
-test('chart keeps repeated live timestamps as separate points', () => {
-  const events = [
-    { event_id: '1', sensor_name: 'Pod1', temperature_c: -78, timestamp: '2026-07-22T10:00:00Z' },
-    { event_id: '2', sensor_name: 'Pod1', temperature_c: -77, timestamp: '2026-07-22T10:00:00Z' },
-    { event_id: '3', sensor_name: 'Pod2', temperature_c: -79, timestamp: '2026-07-22T10:00:00Z' },
-  ];
-  const chart = buildChartSeries(events, ['Pod1', 'Pod2']);
-  assert.equal(chart.labels.length, 2);
-  assert.deepEqual(chart.series[0].values, [-78, -77]);
-  assert.deepEqual(chart.series[1].values, [-79, null]);
+test('uses concise dashboard status labels', () => {
+  assert.equal(statusLabel('STABLE'), 'In range');
+  assert.equal(statusLabel('TOO_COLD'), 'Too cold');
 });

@@ -1,10 +1,9 @@
 import importlib.util
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 
-# Resolve the bridge beside the dashboard so this test still works after the
-# whole folder is uploaded to another machine or cloned from GitHub.
 BRIDGE_PATH = Path(__file__).resolve().parents[1] / "dashboard_bridge.py"
 SPEC = importlib.util.spec_from_file_location("dashboard_bridge", BRIDGE_PATH)
 bridge = importlib.util.module_from_spec(SPEC)
@@ -12,110 +11,100 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(bridge)
 
 
-def base_request(**overrides):
-    request = {
-        "profile": "pfizer_ultralow",
-        "scenario": "outlier",
-        "sensors": ["Pod1", "Pod3", "Pod11"],
-        "interval_ms": 500,
-        "max_events": 20,
-        "save_to_database": False,
-        "min_temp": None,
-        "max_temp": None,
+class FakeCursor:
+    description = [(column,) for column in bridge.EVENT_COLUMNS]
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.statements = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def execute(self, statement, params=None):
+        self.statements.append((statement, params))
+
+    def fetchall(self):
+        return self.rows
+
+
+class FakeConnection:
+    def __init__(self, rows):
+        self.cursor_instance = FakeCursor(rows)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def cursor(self):
+        return self.cursor_instance
+
+
+def database_row(**overrides):
+    values = {
+        "id": 7,
+        "device_id": "device-a",
+        "event_timestamp": datetime(2026, 7, 23, 10, 0, tzinfo=timezone.utc),
+        "source_timestamp": datetime(2020, 12, 16, 11, 25, 54),
+        "sensor_name": "Pod1",
+        "vaccine_type": "pfizer_ultralow",
+        "scenario": "normal",
+        "temperature_c": -78.5,
+        "status": "STABLE",
+        "sensor_tolerance_c": 0.5,
+        "temperature_min_possible_c": -79.0,
+        "temperature_max_possible_c": -78.0,
+        "storage_min_c": -80.0,
+        "storage_max_c": -60.0,
+        "uncertainty_status": "WITHIN_RANGE",
+        "boundary_crossing": False,
+        "measurement_confidence": "Approximately +/-0.5 C Type-T thermocouple accuracy",
+        "received_at": datetime(2026, 7, 23, 10, 0, 1, tzinfo=timezone.utc),
     }
-    request.update(overrides)
-    return request
+    values.update(overrides)
+    return tuple(values[column] for column in bridge.EVENT_COLUMNS)
 
 
 class DashboardBridgeTests(unittest.TestCase):
-    def test_validates_multiple_pods_and_normalizes_duplicates(self):
-        # Duplicate Pod buttons should not create duplicate generator children.
-        result = bridge.validate_start_request(base_request(sensors=["Pod1", "Pod1", "Pod20"]))
-        assert result["sensors"] == ["Pod1", "Pod20"]
+    def test_reads_events_using_a_read_only_transaction(self):
+        connection = FakeConnection([database_row()])
+        reader = bridge.DatabaseReader(connect_factory=lambda **_: connection, settings={})
 
-    def test_requires_custom_bounds_for_moderna(self):
-        # The UI supplies suggested values, but the bridge still validates the
-        # final values at the HTTP boundary.
-        with self.assertRaisesRegex(ValueError, "Moderna"):
-            bridge.validate_start_request(base_request(profile="moderna"))
+        result = reader.fetch_events()
 
-        result = bridge.validate_start_request(base_request(profile="moderna", min_temp=-35, max_temp=-25))
-        assert result["profile"]["target_c"] == -32.5
-        assert result["profile"]["min_c"] == -35.0
+        self.assertEqual(result[0]["event_id"], "7")
+        self.assertEqual(result[0]["timestamp"], "2026-07-23T10:00:00+00:00")
+        self.assertEqual(result[0]["temperature_c"], -78.5)
+        statements = [statement for statement, _ in connection.cursor_instance.statements]
+        self.assertIn("SET TRANSACTION READ ONLY", statements[0])
+        self.assertIn("SELECT", statements[1])
+        self.assertNotIn("INSERT", " ".join(statements).upper())
 
-    def test_rejects_invalid_run_controls(self):
-        # Reject bad controls before starting any subprocess.
-        with self.assertRaisesRegex(ValueError, "interval_ms"):
-            bridge.validate_start_request(base_request(interval_ms=25))
-        with self.assertRaisesRegex(ValueError, "Invalid Pod"):
-            bridge.validate_start_request(base_request(sensors=["Ambient"]))
+    def test_exports_all_database_events_with_dashboard_headers(self):
+        connection = FakeConnection([database_row(), database_row(id=8, sensor_name="Pod2")])
+        reader = bridge.DatabaseReader(connect_factory=lambda **_: connection, settings={})
 
-    def test_builds_one_generator_command_per_selected_pod(self):
-        # One selected Pod maps to one generator command.
-        request = bridge.validate_start_request(base_request())
-        command = bridge.build_generator_command(request, "Pod11", Path("/project/temperature_event_generator.py"))
-        assert command[-10:] == [
-            "--sensor", "Pod11",
-            "--vaccine-type", "pfizer_ultralow",
-            "--scenario", "outlier",
-            "--interval-ms", "500",
-            "--max-events", "20",
-        ]
+        csv_text = reader.export_csv()
 
-    def test_accepts_multiple_scenarios_and_variable_event_count(self):
-        result = bridge.validate_start_request(base_request(scenarios=["normal", "failure"], max_events=37))
-        assert result["scenarios"] == ["normal", "failure"]
-        assert result["max_events"] == 37
+        lines = csv_text.splitlines()
+        self.assertEqual(lines[0].split(",")[0], "event_id")
+        self.assertEqual(len(lines), 3)
+        self.assertIn('Pod1', lines[1])
+        self.assertIn('Pod2', lines[2])
 
-    def test_builds_uploaded_csv_command_for_each_scenario(self):
-        request = bridge.validate_start_request(base_request())
-        request["source_path"] = Path("/tmp/uploaded.csv")
-        command = bridge.build_generator_command(request, "Pod2", Path("/project/temperature_event_generator.py"), "failure")
-        assert command[command.index("--scenario") + 1] == "failure"
-        assert command[-2:] == ["--csv-file", "/tmp/uploaded.csv"]
+    def test_database_failure_is_reported_without_writing(self):
+        def fail_connect(**_):
+            raise RuntimeError("database offline")
 
-    def test_stores_and_cleans_uploaded_csv(self):
-        state = bridge.DashboardState(Path("/tmp"), Path("/tmp/temperature_event_generator.py"))
-        result = state.upload_source(b"date,time,Pod1\n16-Dec-20,11:25:54,-113.7\n", "my data.csv")
-        self.assertIn(result["source_file_id"], state.uploads)
-        self.assertTrue(state.uploads[result["source_file_id"]].exists())
-        state.cleanup_uploads()
-        self.assertFalse(state.uploads)
+        reader = bridge.DatabaseReader(connect_factory=fail_connect, settings={})
 
-    def test_publishes_event_to_subscriber_with_unique_sequence(self):
-        # The sequence survives identical source timestamps and tags active
-        # run events without changing the existing event fields.
-        state = bridge.DashboardState(Path("/tmp"), Path("/tmp/temperature_event_generator.py"))
-        subscriber = state.add_subscriber()
-        subscriber.get_nowait()  # Initial status message.
-        state.publish_event({
-            "device_id": "device",
-            "timestamp": "2026-07-22T10:00:00Z",
-            "source_timestamp": "2020-12-16T11:25:54Z",
-            "sensor_name": "Pod1",
-            "vaccine_type": "pfizer_ultralow",
-            "scenario": "outlier",
-            "temperature_c": -78.5,
-            "status": "STABLE",
-            "sensor_tolerance_c": 0.5,
-            "temperature_min_possible_c": -79.0,
-            "temperature_max_possible_c": -78.0,
-            "storage_min_c": -80.0,
-            "storage_max_c": -60.0,
-            "uncertainty_status": "WITHIN_RANGE",
-            "boundary_crossing": False,
-            "measurement_confidence": "Approximately +/-0.5 C Type-T thermocouple accuracy",
-        })
-        payload = subscriber.get_nowait()
-        assert payload["type"] == "event"
-        assert payload["event"]["event_sequence"] == 1
-        assert "run_id" not in payload["event"]
-        state.run = {"running": True, "run_id": "run-1"}
-        state.publish_event({"sensor_name": "Pod1", "temperature_c": -78.0})
-        running_payload = subscriber.get_nowait()
-        assert running_payload["event"]["run_id"] == "run-1"
-        assert running_payload["event"]["event_sequence"] == 2
-        state.mqtt_client.disconnect()
+        with self.assertRaisesRegex(bridge.DatabaseUnavailable, "database offline"):
+            reader.fetch_events()
 
 
 if __name__ == "__main__":

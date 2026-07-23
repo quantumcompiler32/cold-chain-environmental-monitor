@@ -1,19 +1,15 @@
 (function initVaccineAnalytics(global) {
   const data = global.VaccineData;
   const bridge = global.VaccineBridge;
-  if (!data) return;
+  if (!data || !bridge) return;
 
   const COLORS = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#6b7280'];
   const SCENARIO_COLORS = { normal: '#10b981', recovery: '#3b82f6', outlier: '#f59e0b', failure: '#ef4444' };
   const DEFAULT_SENSORS = ['Pod1', 'Pod2', 'Pod3', 'Pod6', 'Pod11', 'Pod20'];
-  let events = data.createDemoEvents();
-  let selectedSensors = DEFAULT_SENSORS.slice();
+  let events = [];
+  let selectedSensors = [];
   let profile = data.PROFILE;
-  let dataLabel = 'Using local event data';
-  let sourceLabel = 'LOCAL';
-  let liveMode = false;
-  let liveRunId = null;
-  let runSensors = null;
+  let dataLabel = 'Waiting for PostgreSQL events';
   let renderQueued = false;
   let toastTimer;
 
@@ -72,16 +68,19 @@
     const outOfRange = summaries.filter((sensor) => sensor.status === 'TOO_COLD' || sensor.status === 'TOO_WARM');
     const names = outOfRange.slice(0, 3).map((sensor) => sensor.sensorName).join(', ');
     attention.classList.toggle('safe', outOfRange.length === 0);
-    $('attentionTitle').textContent = outOfRange.length ? `Simulation: ${outOfRange.length} sensor${outOfRange.length === 1 ? '' : 's'} outside range` : 'All simulated sensors are in range';
-    $('attentionText').textContent = outOfRange.length ? `${names}${outOfRange.length > 3 ? ' and more' : ''} are outside ${rangeText()}. Use the visualizations to inspect the generated behavior.` : `The latest simulated readings are within the ${profile.label} range.`;
+    $('attentionTitle').textContent = outOfRange.length
+      ? outOfRange.length + ' sensor' + (outOfRange.length === 1 ? '' : 's') + ' outside the stored profile range'
+      : 'All stored sensors are in range';
+    $('attentionText').textContent = outOfRange.length
+      ? names + (outOfRange.length > 3 ? ' and more' : '') + ' require review.'
+      : events.length ? 'The latest persisted readings are within their configured storage ranges.' : 'Waiting for persisted PostgreSQL readings.';
   }
 
   function renderPicker(availableSensors) {
-    const picker = $('sensorPicker');
     const active = selectedSensors.filter((sensor) => availableSensors.includes(sensor));
-    if (!liveMode) selectedSensors = active.length ? active : availableSensors.length ? availableSensors.slice(0, 6) : selectedSensors;
-    picker.innerHTML = availableSensors.map((sensorName, index) => `<button class="sensor-chip${selectedSensors.includes(sensorName) ? ' selected' : ''}" type="button" aria-pressed="${selectedSensors.includes(sensorName)}" data-sensor="${esc(sensorName)}" style="--chip-color:${COLORS[index % COLORS.length]}"${liveMode ? ' disabled title="Selected in the live run"' : ''}>${esc(sensorName)}</button>`).join('');
-    if (liveMode) return;
+    selectedSensors = active.length ? active : availableSensors.slice(0, 6);
+    const picker = $('sensorPicker');
+    picker.innerHTML = availableSensors.map((sensorName, index) => '<button class="sensor-chip' + (selectedSensors.includes(sensorName) ? ' selected' : '') + '" type="button" aria-pressed="' + selectedSensors.includes(sensorName) + '" data-sensor="' + esc(sensorName) + '" style="--chip-color:' + COLORS[index % COLORS.length] + '">' + esc(sensorName) + '</button>').join('');
     picker.querySelectorAll('[data-sensor]').forEach((button) => button.addEventListener('click', () => {
       const sensor = button.dataset.sensor;
       selectedSensors = selectedSensors.includes(sensor) ? selectedSensors.filter((item) => item !== sensor) : [...selectedSensors, sensor];
@@ -215,14 +214,29 @@
   function renderCharts() {
     renderTemperatureChart();
     renderBars($('excursionChart'), data.buildExcursionSeries(events).slice(-12), { cold: '#60a5fa', warm: '#ef4444' }, (value) => value);
-    const scenarios = Object.entries(data.buildScenarioCounts(events)).map(([label, count]) => ({ label, count }));
+    const scenarioCounts = data.buildScenarioCounts(events);
+    const scenarioLabels = [...new Set(Object.keys(scenarioCounts))];
+    const scenarios = scenarioLabels.map((label) => ({ label, count: scenarioCounts[label] || 0 }));
     renderBars($('scenarioChart'), scenarios, Object.values(SCENARIO_COLORS), (value) => value);
-    $('scenarioLegend').innerHTML = scenarios.map((scenario) => `<span><i class="legend-dot" style="background:${SCENARIO_COLORS[scenario.label] || '#6b7280'}"></i>${esc(scenario.label)} ${scenario.count}</span>`).join('');
+    const coverage = {};
+    $('scenarioLegend').innerHTML = scenarios.map((scenario) => {
+      const expected = coverage[scenario.label]?.expected;
+      const label = Number.isFinite(expected) ? `${scenario.count}/${expected}` : `${scenario.count}`;
+      return `<span><i class="legend-dot" style="background:${SCENARIO_COLORS[scenario.label] || '#6b7280'}"></i>${esc(scenario.label)} ${label}</span>`;
+    }).join('');
+    const received = scenarios.reduce((sum, scenario) => sum + scenario.count, 0);
+    const expected = Object.values(coverage).reduce((sum, item) => sum + Number(item.expected || 0), 0);
+    $('scenarioCoverageSummary').textContent = expected ? `${received.toLocaleString()} of ${expected.toLocaleString()} expected events received` : 'Received events by scenario';
     renderGroupedBars($('scenarioOutcomeChart'), data.buildScenarioOutcomeSeries(events), [
       { key: 'tooCold', label: 'Cold/warm excursions', color: '#ef4444' },
       { key: 'tooWarm', label: 'Warm excursions', color: '#f59e0b' },
       { key: 'borderline', label: 'Borderline', color: '#ec4899' },
     ]);
+    const profileCounts = {};
+    events.forEach((event) => { profileCounts[event.vaccine_type] = (profileCounts[event.vaccine_type] || 0) + 1; });
+    const profileEntries = Object.entries(profileCounts).map(([id, count]) => ({ label: data.getProfile(id).label, count }));
+    renderBars($('profileChart'), profileEntries, COLORS, (value) => value);
+    $('profileLegend').innerHTML = profileEntries.map((item, index) => `<span><i class="legend-dot" style="background:${COLORS[index % COLORS.length]}"></i>${esc(item.label)} ${item.count}</span>`).join('');
     renderSensorSpread($('sensorSpreadChart'), data.buildSensorSpreadSeries(events, selectedSensors));
     renderGroupedBars($('uncertaintyChart'), data.buildUncertaintySeries(events).slice(-12), [
       { key: 'crossing', label: 'Boundary crossing', color: '#ec4899' },
@@ -231,8 +245,7 @@
   }
 
   function renderTable(summaries) {
-    $('sensorTable').innerHTML = summaries.map((sensor) => `<tr><td class="sensor-name">${esc(sensor.sensorName)}</td><td class="temp">${formatC(sensor.latestTemperatureC)}</td><td><span class="condition ${statusClass(sensor.status)}">${statusLabel(sensor.status)}</span></td><td class="muted-cell">${esc(sensor.latestScenario)}</td><td class="muted-cell">${sensor.readingCount}</td><td>${liveMode ? '<span class="muted-cell">Run selected</span>' : `<button class="row-action" type="button" data-focus-sensor="${esc(sensor.sensorName)}">View trend</button>`}</td></tr>`).join('');
-    if (liveMode) return;
+    $('sensorTable').innerHTML = summaries.map((sensor) => '<tr><td class="sensor-name">' + esc(sensor.sensorName) + '</td><td class="temp">' + formatC(sensor.latestTemperatureC) + '</td><td><span class="condition ' + statusClass(sensor.status) + '">' + statusLabel(sensor.status) + '</span></td><td class="muted-cell">' + esc(sensor.latestScenario) + '</td><td class="muted-cell">' + sensor.readingCount + '</td><td><button class="row-action" type="button" data-focus-sensor="' + esc(sensor.sensorName) + '">View trend</button></td></tr>').join('');
     $('sensorTable').querySelectorAll('[data-focus-sensor]').forEach((button) => button.addEventListener('click', () => {
       selectedSensors = [button.dataset.focusSensor, ...selectedSensors.filter((sensor) => sensor !== button.dataset.focusSensor)].slice(0, 6);
       render();
@@ -249,7 +262,9 @@
 
   function render() {
     const summaries = data.summarizeSensors(events);
-    const availableSensors = liveMode && runSensors?.length ? runSensors : summaries.map((sensor) => sensor.sensorName);
+    const availableSensors = summaries.map((sensor) => sensor.sensorName);
+    const profileIds = [...new Set(events.map((event) => event.vaccine_type).filter(Boolean))];
+    profile = data.getProfile(profileIds[0] || 'pfizer_ultralow');
     renderPicker(availableSensors);
     renderKpis(summaries);
     renderAttention(summaries);
@@ -259,16 +274,16 @@
     renderProvenance();
     const borderline = events.filter((event) => String(event.uncertainty_status || '').startsWith('BORDERLINE')).length;
     const crossing = events.filter((event) => event.boundary_crossing).length;
-    $('uncertaintySummary').textContent = `±${data.SENSOR_TOLERANCE_C.toFixed(1)}°C Type-T accuracy`;
-    $('uncertaintyCopy').textContent = `${borderline.toLocaleString()} borderline reading${borderline === 1 ? '' : 's'} and ${crossing.toLocaleString()} possible boundary crossing${crossing === 1 ? '' : 's'} in this view. The raw status still follows the selected storage range.`;
+    $('uncertaintySummary').textContent = '±' + data.SENSOR_TOLERANCE_C.toFixed(1) + '°C Type-T accuracy';
+    $('uncertaintyCopy').textContent = borderline.toLocaleString() + ' borderline reading' + (borderline === 1 ? '' : 's') + ' and ' + crossing.toLocaleString() + ' possible boundary crossing' + (crossing === 1 ? '' : 's') + ' in the stored database events.';
     $('dataMode').textContent = dataLabel;
-      $('modePill').textContent = liveMode ? 'LIVE MQTT' : sourceLabel === 'LOCAL' ? 'LOCAL SIMULATION' : 'IMPORTED FILE';
-    $('profileName').textContent = profile.label;
-    $('profileTarget').textContent = formatC(profile.targetC);
-    $('profileRange').textContent = rangeText();
-    $('trendSub').textContent = `${selectedSensors.length} sensor${selectedSensors.length === 1 ? '' : 's'} selected${liveMode ? ' in this live run' : ''} · focused axis · threshold band ${rangeText()}`;
-    $('chartHelp').textContent = liveMode ? 'Pods selected in Live runner' : 'Choose sensors below';
-    $('targetLegend').textContent = `Target ${formatC(profile.targetC)}`;
+    $('modePill').textContent = 'POSTGRESQL';
+    $('profileName').textContent = profileIds.length > 1 ? 'Multiple vaccine profiles' : profile.label;
+    $('profileTarget').textContent = profileIds.length > 1 ? 'Profile-specific' : formatC(profile.targetC);
+    $('profileRange').textContent = profileIds.length > 1 ? 'Profile-specific' : rangeText();
+    $('trendSub').textContent = selectedSensors.length + ' sensor' + (selectedSensors.length === 1 ? '' : 's') + ' selected · persisted database readings';
+    $('chartHelp').textContent = 'Choose sensors below';
+    $('targetLegend').textContent = 'Target ' + formatC(profile.targetC);
   }
 
   function queueRender() {
@@ -278,64 +293,30 @@
     if (typeof global.requestAnimationFrame === 'function') global.requestAnimationFrame(draw); else setTimeout(draw, 16);
   }
 
-  function applyLiveRun(status) {
-    liveMode = true;
-    liveRunId = status.run_id;
-    events = [];
-    runSensors = Array.isArray(status.sensors) && status.sensors.length ? status.sensors.slice() : DEFAULT_SENSORS.slice();
-    selectedSensors = runSensors.slice();
-    const bounds = { min_temp: status.min_temp, max_temp: status.max_temp };
-    applyProfile(status.profile_id || 'pfizer_ultralow', bounds);
-    dataLabel = `Live ${profile.label} run · waiting for events`;
-    sourceLabel = 'LIVE';
-    render();
-  }
-
-  function acceptLiveEvent(rawEvent) {
-    if (!liveMode || !liveRunId || rawEvent.run_id !== liveRunId) return;
-    events.push(data.normalizeEvent(rawEvent, profile));
-    if (events.length > 12000) events = events.slice(-12000);
-    queueRender();
-  }
-
-  function handleLiveStatus(status) {
-    if (!liveMode || status.run_id !== liveRunId) return;
-    if (!status.running && (status.state === 'completed' || status.state === 'stopped')) {
-      dataLabel = `Live ${profile.label} run · ${events.length.toLocaleString()} events received`;
-      render();
+  $('exportButton').addEventListener('click', async () => {
+    try {
+      await bridge.exportAllEvents();
+      showToast('Exported all PostgreSQL events.');
+    } catch (error) {
+      showToast(error.message);
     }
-  }
-
-  $('resetButton').addEventListener('click', () => {
-    liveMode = false;
-    liveRunId = null;
-    runSensors = null;
-    applyProfile('pfizer_ultralow');
-    events = data.createDemoEvents();
-    selectedSensors = DEFAULT_SENSORS.slice();
-    dataLabel = 'Using local event data';
-    sourceLabel = 'LOCAL';
-    render();
-    showToast('Local data restored.');
-  });
-  $('exportButton').addEventListener('click', () => {
-    const visible = events.filter((event) => selectedSensors.includes(event.sensor_name));
-    const blob = new Blob([data.toCsv(visible)], { type: 'text/csv;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'vaccine-dashboard-view.csv';
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 0);
   });
 
   applyProfile('pfizer_ultralow');
   render();
-  const observer = bridge?.createObserver({
-    onHealth: (health) => setBridgeState(Boolean(health.mqtt_connected), health.mqtt_connected ? 'Live bridge connected' : 'Bridge online · MQTT offline'),
-    onRunStart: applyLiveRun,
-    onEvent: acceptLiveEvent,
-    onStatus: handleLiveStatus,
-  });
-  observer?.start();
-  global.VaccineDashboard = { getEvents: () => events.slice(), render, normalizeEvent: data.normalizeEvent };
+  bridge.watchDatabase(
+    (rawEvents) => {
+      events = rawEvents.map((event) => data.normalizeEvent(event));
+      dataLabel = events.length.toLocaleString() + ' persisted PostgreSQL event' + (events.length === 1 ? '' : 's');
+      setBridgeState(true, 'PostgreSQL connected');
+      render();
+    },
+    (error) => {
+      events = [];
+      dataLabel = 'PostgreSQL unavailable';
+      setBridgeState(false, 'PostgreSQL unavailable');
+      render();
+      showToast(error.message);
+    }
+  );
 })(typeof globalThis === 'undefined' ? this : globalThis);

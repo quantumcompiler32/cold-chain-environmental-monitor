@@ -21,8 +21,10 @@
 
   function getProfile(id = PROFILE.id, bounds = {}) {
     const base = PROFILE_DEFINITIONS[id] || PROFILE_DEFINITIONS[PROFILE.id];
-    const lowerLimitC = bounds.min_temp == null ? base.lowerLimitC : Number(bounds.min_temp);
-    const upperLimitC = bounds.max_temp == null ? base.upperLimitC : Number(bounds.max_temp);
+    const lowerValue = bounds.min_temp ?? bounds.storage_min_c;
+    const upperValue = bounds.max_temp ?? bounds.storage_max_c;
+    const lowerLimitC = lowerValue == null || lowerValue === '' ? base.lowerLimitC : Number(lowerValue);
+    const upperLimitC = upperValue == null || upperValue === '' ? base.upperLimitC : Number(upperValue);
     return Object.freeze({ ...base, lowerLimitC, upperLimitC });
   }
 
@@ -96,18 +98,20 @@
 
   function normalizeEvent(raw, profile = PROFILE) {
     const temperature = Number(raw.temperature_c ?? raw.temperature ?? raw.temp_c);
+    const eventProfile = getProfile(raw.vaccine_type ?? profile.id, raw);
     return {
-      event_id: String(raw.event_id ?? raw.event_sequence ?? raw.received_at ?? `${raw.timestamp ?? raw.event_timestamp ?? ''}|${raw.sensor_name ?? raw.sensor ?? ''}|${temperature}`),
+      event_id: String(raw.event_id ?? raw.id ?? raw.event_sequence ?? raw.received_at ?? `${raw.timestamp ?? raw.event_timestamp ?? ''}|${raw.sensor_name ?? raw.sensor ?? ''}|${temperature}`),
       device_id: String(raw.device_id ?? 'vaccine_temperature_simulator'),
       timestamp: String(raw.timestamp ?? raw.event_timestamp ?? raw.received_at ?? ''),
       received_at: String(raw.received_at ?? ''),
       source_timestamp: String(raw.source_timestamp ?? ''),
       sensor_name: String(raw.sensor_name ?? raw.sensor ?? 'Unknown'),
-      vaccine_type: String(raw.vaccine_type ?? PROFILE.id),
+      vaccine_type: eventProfile.id,
+      vaccine_label: eventProfile.label,
       scenario: String(raw.scenario ?? 'normal'),
       temperature_c: temperature,
-      status: classifyTemperature(temperature, profile),
-      ...uncertaintyFields(temperature, profile, raw.sensor_tolerance_c ?? SENSOR_TOLERANCE_C),
+      status: String(raw.status || classifyTemperature(temperature, eventProfile)),
+      ...uncertaintyFields(temperature, eventProfile, raw.sensor_tolerance_c ?? SENSOR_TOLERANCE_C),
     };
   }
 
@@ -281,6 +285,21 @@
     }, {});
   }
 
+  function statusLabel(status) {
+    return { STABLE: 'In range', ACCEPTABLE: 'In range', TOO_COLD: 'Too cold', TOO_WARM: 'Too warm', UNKNOWN: 'Unknown' }[status] || status || 'Unknown';
+  }
+
+  function summarize(events) {
+    const statuses = buildStatusCounts(events);
+    return {
+      total: events.length,
+      sensors: new Set(events.map((event) => event.sensor_name)).size,
+      outOfRange: statuses.TOO_COLD + statuses.TOO_WARM,
+      latest: sortedEvents(events).at(-1),
+      statuses,
+    };
+  }
+
   function buildScenarioCounts(events) {
     return events.reduce((counts, event) => {
       counts[event.scenario] = (counts[event.scenario] || 0) + 1;
@@ -343,32 +362,6 @@
     });
   }
 
-  function createDemoEvents() {
-    const sensors = Array.from({ length: 20 }, (_, index) => `Pod${index + 1}`);
-    const scenarios = ['normal', 'normal', 'normal', 'recovery', 'outlier', 'failure'];
-    const events = [];
-    sensors.forEach((sensorName, sensorIndex) => {
-      for (let point = 0; point < 24; point += 1) {
-        const base = PROFILE.targetC + Math.sin((point + sensorIndex) / 3) * 0.7 + ((sensorIndex % 5) - 2) * 0.18;
-        const isColdExcursion = sensorIndex === 2 && point >= 20 && point <= 23;
-        const isWarmExcursion = sensorIndex === 10 && point >= 20 && point <= 23;
-        const temperature = isColdExcursion ? -82 + (point - 20) * 0.5 : isWarmExcursion ? -59.2 - (point - 20) * 0.25 : base;
-        const sourceTimestamp = new Date(Date.UTC(2020, 11, 16, 11, 25, 54 + point * 10 + sensorIndex));
-        const timestamp = new Date(Date.UTC(2026, 6, 21, 8 + point, 0, 0));
-        events.push(normalizeEvent({
-          device_id: 'vaccine_temperature_simulator',
-          timestamp: timestamp.toISOString(),
-          source_timestamp: sourceTimestamp.toISOString(),
-          sensor_name: sensorName,
-          vaccine_type: PROFILE.id,
-          scenario: scenarios[(point + sensorIndex) % scenarios.length],
-          temperature_c: Number(temperature.toFixed(2)),
-        }));
-      }
-    });
-    return events;
-  }
-
   function toCsv(events) {
     const headers = ['device_id', 'timestamp', 'source_timestamp', 'sensor_name', 'vaccine_type', 'scenario', 'temperature_c', 'status', 'sensor_tolerance_c', 'temperature_min_possible_c', 'temperature_max_possible_c', 'storage_min_c', 'storage_max_c', 'uncertainty_status', 'boundary_crossing', 'measurement_confidence'];
     const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
@@ -395,9 +388,10 @@
     buildUncertaintySeries,
     buildExcursionSeries,
     buildReplayOffsetSeries,
-    createDemoEvents,
     limitEvents,
     getChartHeight,
     toCsv,
+    statusLabel,
+    summarize,
   };
 });

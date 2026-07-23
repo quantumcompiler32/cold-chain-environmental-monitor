@@ -5,31 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vaccine Cold Chain</title>
   <link rel="stylesheet" href="shared.css">
-  <link rel="stylesheet" href="vaccine.css?v=analytics-2">
+  <link rel="stylesheet" href="vaccine.css?v=readonly-1">
 </head>
 <body>
   <main class="tab-panel active">
     <div class="content-scroll vaccine-page">
       <header class="page-header">
         <div>
-          <div class="eyebrow"><span class="demo-pill" id="modePill">LOCAL SIMULATION</span><span id="dataMode">Using local event data</span></div>
+          <div class="eyebrow"><span class="demo-pill" id="modePill">POSTGRESQL</span><span id="dataMode">Waiting for PostgreSQL events</span></div>
           <h1>Vaccine cold-chain overview</h1>
-          <p>See which package needs attention, then review the affected stock. This prototype does not make clinical release decisions.</p>
+          <p>Analyze persisted vaccine events, pod health, scenarios, and temperature trends. The event pipeline runs independently in the terminal.</p>
         </div>
         <div class="header-actions">
-          <button class="button secondary" id="resetButton" type="button">Use local data</button>
-          <button class="button primary" id="exportButton" type="button">Export view</button>
-          <a class="button secondary" href="domain-vaccine-live.html">Live runner</a>
+          <button class="button primary" id="exportButton" type="button">Export PostgreSQL CSV</button>
           <a class="button secondary" href="domain-vaccine-raw.html">Raw events</a>
-          <span class="bridge-status offline" id="bridgeStatus"><i></i>Live bridge offline</span>
+          <span class="bridge-status offline" id="bridgeStatus"><i></i>PostgreSQL unavailable</span>
         </div>
       </header>
-
-      <nav class="dashboard-nav" aria-label="Vaccine dashboard pages">
-        <a class="dashboard-nav-link active" href="domain-vaccine.html" aria-current="page"><strong>Analytics</strong><span>Live visualizations</span></a>
-        <a class="dashboard-nav-link" href="domain-vaccine-live.html"><strong>Live runner</strong><span>Choose Pods and scenario</span></a>
-        <a class="dashboard-nav-link" href="domain-vaccine-raw.html"><strong>Raw events</strong><span>Readable event text</span></a>
-      </nav>
 
       <section class="profile-strip" aria-label="Active vaccine profile">
         <div><span class="profile-label">Active profile</span><strong id="profileName">Pfizer ultralow</strong></div>
@@ -74,8 +66,8 @@
           <div class="chart-legend"><span><i class="legend-dot cold-dot"></i>Too cold</span><span><i class="legend-dot warm-dot"></i>Too warm</span></div>
         </article>
         <article class="card chart-card">
-          <div class="card-title">Scenario mix</div>
-          <div class="card-sub">Provenance from the temperature event pipeline</div>
+          <div class="card-title">Scenario coverage</div>
+          <div class="card-sub" id="scenarioCoverageSummary">Received events by scenario</div>
           <div class="chart-wrap small-chart" id="scenarioChart" aria-label="Scenario chart"></div>
           <div class="chart-legend" id="scenarioLegend"></div>
         </article>
@@ -88,6 +80,15 @@
           <div class="chart-wrap small-chart" id="scenarioOutcomeChart" aria-label="Scenario outcome chart"></div>
           <div class="chart-legend"><span><i class="legend-dot warm-dot"></i>Raw excursions</span><span><i class="legend-dot borderline-dot"></i>Borderline</span></div>
         </article>
+        <article class="card chart-card">
+          <div class="card-title">Profile split</div>
+          <div class="card-sub">Received events grouped by vaccine profile.</div>
+          <div class="chart-wrap small-chart" id="profileChart" aria-label="Vaccine profile split chart"></div>
+          <div class="chart-legend" id="profileLegend"></div>
+        </article>
+      </section>
+
+      <section class="grid-2 chart-grid">
         <article class="card chart-card">
           <div class="card-title">Sensor variation</div>
           <div class="card-sub">Minimum, average, and maximum for the selected Pods.</div>
@@ -103,7 +104,7 @@
       </section>
 
       <section class="card sensor-card" id="sensorTableCard">
-        <div class="card-heading"><div><div class="card-title">All package sensors</div><div class="card-sub">Select a row to focus the trend chart. Values are calculated from imported or local events.</div></div><span class="table-hint">Pod1–Pod20</span></div>
+        <div class="card-heading"><div><div class="card-title">All package sensors</div><div class="card-sub">Select a row to focus the trend chart. Values are calculated from persisted PostgreSQL events.</div></div><span class="table-hint">Pod1–Pod20</span></div>
         <div class="table-wrap"><table class="unit-table"><thead><tr><th>Sensor</th><th>Latest</th><th>Condition</th><th>Scenario</th><th>Readings</th><th></th></tr></thead><tbody id="sensorTable"></tbody></table></div>
       </section>
 
@@ -116,8 +117,8 @@
   </main>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="vaccine-data.js?v=analytics-2"></script>
-  <script src="vaccine-bridge.js?v=analytics-2"></script>
-  <script src="vaccine.js?v=analytics-2"></script>
+  <script src="vaccine-data.js?v=readonly-1"></script>
+  <script src="vaccine-bridge.js?v=readonly-1"></script>
+  <script src="vaccine.js?v=readonly-1"></script>
 </body>
 </html>
