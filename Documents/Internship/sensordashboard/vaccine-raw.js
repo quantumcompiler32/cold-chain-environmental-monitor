@@ -7,6 +7,7 @@
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
   const MAX_VISIBLE_EVENTS = 250;
   let events = [];
+  let newestEventKey = null;
 
   const formatTime = (value) => {
     const date = new Date(value);
@@ -15,7 +16,15 @@
   const formatTemperature = (value) => Number.isFinite(Number(value)) ? Number(value).toFixed(1) + '°C' : '—';
   const statusClass = (status) => String(status || 'UNKNOWN').toLowerCase().replace('_', '-');
 
-  function render() {
+  function followNewest() {
+    const stream = $('rawStream');
+    if (!stream || !$('rawAutoFollow').checked) return;
+    global.requestAnimationFrame(() => { stream.scrollTop = 0; });
+  }
+
+  function render({ follow = false } = {}) {
+    const stream = $('rawStream');
+    const previousScrollTop = stream.scrollTop;
     const sensors = [...new Set(events.map((event) => event.sensor_name))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     const scenarios = [...new Set(events.map((event) => event.scenario).filter(Boolean))].sort();
     const sensorFilter = $('rawSensorFilter');
@@ -28,7 +37,7 @@
     scenarioFilter.value = scenarios.includes(selectedScenario) ? selectedScenario : 'all';
     const matching = events.slice().reverse().filter((event) => (sensorFilter.value === 'all' || event.sensor_name === sensorFilter.value) && (scenarioFilter.value === 'all' || event.scenario === scenarioFilter.value));
     const visible = matching.slice(0, MAX_VISIBLE_EVENTS);
-    $('rawStream').innerHTML = visible.map((event) => {
+    stream.innerHTML = visible.map((event) => {
       const condition = statusClass(event.status);
       const uncertainty = event.uncertainty_status ? '<span class="raw-uncertainty">' + esc(event.uncertainty_status.replaceAll('_', ' ')) + '</span>' : '';
       return '<article class="raw-row readable-raw-row">'
@@ -46,14 +55,27 @@
     $('rawStatusText').textContent = 'PostgreSQL connected · ' + events.length.toLocaleString() + ' persisted events';
     $('rawSource').textContent = 'POSTGRESQL';
     $('rawMode').textContent = 'POSTGRESQL';
+    if (follow) followNewest(); else stream.scrollTop = previousScrollTop;
   }
 
   $('rawSensorFilter').addEventListener('change', render);
   $('rawScenarioFilter').addEventListener('change', render);
+  $('rawAutoFollow').addEventListener('change', () => {
+    if ($('rawAutoFollow').checked) followNewest();
+  });
+  $('rawStream').addEventListener('scroll', () => {
+    const stream = $('rawStream');
+    const atNewest = stream.scrollTop <= 24;
+    if (!atNewest && $('rawAutoFollow').checked) $('rawAutoFollow').checked = false;
+  });
   bridge.watchDatabase(
     (rawEvents) => {
       events = rawEvents.map((event) => data.normalizeEvent(event));
-      render();
+      const latest = events.at(-1);
+      const nextKey = latest ? String(latest.event_id || latest.timestamp || '') : null;
+      const receivedNewEvent = newestEventKey !== null && nextKey !== newestEventKey;
+      newestEventKey = nextKey;
+      render({ follow: $('rawAutoFollow').checked && (receivedNewEvent || events.length > 0) });
     },
     (error) => {
       events = [];
