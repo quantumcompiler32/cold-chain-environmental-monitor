@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vaccine Raw Events</title>
   <link rel="stylesheet" href="shared.css">
-  <link rel="stylesheet" href="vaccine.css?v=readonly-1">
+  <link rel="stylesheet" href="vaccine.css?v=raw-readable-2">
 </head>
 <body>
   <main class="content-scroll vaccine-page raw-page">
@@ -27,14 +27,15 @@
         <label class="raw-label" for="rawScenarioFilter">Scenario:</label>
         <select class="raw-filter" id="rawScenarioFilter"><option value="all">ALL SCENARIOS</option></select>
         <span class="raw-label">Newest first · refreshes every 5 seconds</span>
-        <span class="raw-label raw-count">Rows: <span id="rowCount">0</span></span>
+        <span class="raw-label raw-count">Showing <span id="rowCount">0</span></span>
       </div>
+      <div class="raw-context"><strong>Read-only event log</strong><span id="rawContext">Loading the latest persisted readings…</span></div>
       <div class="raw-stream readable-raw-stream" id="rawStream" aria-live="polite"></div>
       <div class="raw-footer"><div class="raw-stat">EVENTS <span id="statIn">0</span></div><div class="raw-stat">SOURCE <span id="rawSource">POSTGRESQL</span></div><div class="raw-stat">POLL <span>5 SEC</span></div></div>
     </section>
   </main>
   <script src="vaccine-data.js?v=readonly-1"></script>
   <script src="vaccine-bridge.js?v=readonly-1"></script>
-  <script src="vaccine-raw.js?v=readonly-1"></script>
+  <script src="vaccine-raw.js?v=raw-readable-2"></script>
 </body>
 </html>

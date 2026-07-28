@@ -5,7 +5,15 @@
 
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+  const MAX_VISIBLE_EVENTS = 250;
   let events = [];
+
+  const formatTime = (value) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value || '—') : date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  };
+  const formatTemperature = (value) => Number.isFinite(Number(value)) ? Number(value).toFixed(1) + '°C' : '—';
+  const statusClass = (status) => String(status || 'UNKNOWN').toLowerCase().replace('_', '-');
 
   function render() {
     const sensors = [...new Set(events.map((event) => event.sensor_name))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -18,12 +26,22 @@
     scenarioFilter.innerHTML = '<option value="all">ALL SCENARIOS</option>' + scenarios.map((scenario) => '<option value="' + esc(scenario) + '">' + esc(scenario.toUpperCase()) + '</option>').join('');
     sensorFilter.value = sensors.includes(selectedSensor) ? selectedSensor : 'all';
     scenarioFilter.value = scenarios.includes(selectedScenario) ? selectedScenario : 'all';
-    const visible = events.slice().reverse().filter((event) => (sensorFilter.value === 'all' || event.sensor_name === sensorFilter.value) && (scenarioFilter.value === 'all' || event.scenario === scenarioFilter.value));
+    const matching = events.slice().reverse().filter((event) => (sensorFilter.value === 'all' || event.sensor_name === sensorFilter.value) && (scenarioFilter.value === 'all' || event.scenario === scenarioFilter.value));
+    const visible = matching.slice(0, MAX_VISIBLE_EVENTS);
     $('rawStream').innerHTML = visible.map((event) => {
-      const statusClass = event.status === 'STABLE' || event.status === 'ACCEPTABLE' ? 'val' : 'crit';
-      return '<div class="raw-row readable-raw-row"><div class="raw-event-heading"><span class="ts">[' + esc(event.timestamp) + ']</span><span class="sid">' + esc(event.sensor_name) + '</span><span class="condition ' + statusClass + '">' + esc(event.status) + '</span></div><pre>' + esc(JSON.stringify(event, null, 2)) + '</pre></div>';
+      const condition = statusClass(event.status);
+      const uncertainty = event.uncertainty_status ? '<span class="raw-uncertainty">' + esc(event.uncertainty_status.replaceAll('_', ' ')) + '</span>' : '';
+      return '<article class="raw-row readable-raw-row">'
+        + '<div class="raw-event-main"><div><span class="raw-event-time">' + esc(formatTime(event.timestamp)) + '</span><strong>' + esc(event.sensor_name || 'Unknown sensor') + '</strong></div>'
+        + '<span class="raw-temperature">' + esc(formatTemperature(event.temperature_c)) + '</span><span class="condition ' + condition + '">' + esc(String(event.status || 'UNKNOWN').replaceAll('_', ' ')) + '</span></div>'
+        + '<div class="raw-event-details"><span><b>Profile</b>' + esc(event.vaccine_type || '—') + '</span><span><b>Scenario</b>' + esc(event.scenario || '—') + '</span><span><b>Event ID</b>' + esc(event.event_id || '—') + '</span>' + uncertainty + '</div>'
+        + '<details class="raw-payload"><summary>View stored payload</summary><pre>' + esc(JSON.stringify(event, null, 2)) + '</pre></details>'
+        + '</article>';
     }).join('') || '<div class="empty">No PostgreSQL events match these filters.</div>';
-    $('rowCount').textContent = visible.length.toLocaleString();
+    $('rowCount').textContent = (matching.length > MAX_VISIBLE_EVENTS ? MAX_VISIBLE_EVENTS + ' of ' : '') + matching.length.toLocaleString();
+    $('rawContext').textContent = matching.length > MAX_VISIBLE_EVENTS
+      ? 'Rendering the newest ' + MAX_VISIBLE_EVENTS + ' matching events. Expand one row only when you need its raw JSON.'
+      : matching.length + ' matching event' + (matching.length === 1 ? '' : 's') + '. Expand one row only when you need its raw JSON.';
     $('statIn').textContent = events.length.toLocaleString();
     $('rawStatusText').textContent = 'PostgreSQL connected · ' + events.length.toLocaleString() + ' persisted events';
     $('rawSource').textContent = 'POSTGRESQL';
@@ -41,6 +59,7 @@
       events = [];
       $('rawStatusText').textContent = 'PostgreSQL unavailable';
       $('rawStream').innerHTML = '<div class="empty">' + esc(error.message) + '</div>';
+      $('rawContext').textContent = 'The database bridge is unavailable; no event data is being changed.';
       $('statIn').textContent = '0';
       $('rowCount').textContent = '0';
     }

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vaccine Cold Chain</title>
   <link rel="stylesheet" href="shared.css">
-  <link rel="stylesheet" href="vaccine.css?v=readonly-1">
+  <link rel="stylesheet" href="vaccine.css?v=analytics-prototype-2">
 </head>
 <body>
   <main class="tab-panel active">
@@ -22,6 +22,9 @@
           <span class="bridge-status offline" id="bridgeStatus"><i></i>PostgreSQL unavailable</span>
         </div>
       </header>
+
+      <!-- PROTOTYPE: Three analytics layouts, switchable with ?variant=A|B|C. -->
+      <section id="analyticsPrototype" class="analytics-prototype" aria-live="polite"></section>
 
       <section class="profile-strip" aria-label="Active vaccine profile">
         <div><span class="profile-label">Active profile</span><strong id="profileName">Pfizer ultralow</strong></div>
@@ -120,5 +123,6 @@
   <script src="vaccine-data.js?v=readonly-1"></script>
   <script src="vaccine-bridge.js?v=readonly-1"></script>
   <script src="vaccine.js?v=readonly-1"></script>
+  <script src="vaccine-analytics-prototype.js?v=analytics-prototype-2"></script>
 </body>
 </html>
