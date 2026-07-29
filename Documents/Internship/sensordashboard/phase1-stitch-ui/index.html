@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VaxChain OS · Phase 1</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="phase1.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#operations">VaxChain <span>OS</span></a>
+    <nav class="main-nav" aria-label="Phase 1 destinations">
+      <a href="#operations" data-route-link="operations">Operations</a>
+      <a href="#raw-events" data-route-link="raw-events">Raw Events</a>
+      <a href="#interpretation" data-route-link="interpretation">Interpretation</a>
+    </nav>
+    <div class="topbar-tools">
+      <span class="connection-badge offline" id="connectionBadge"><i></i><span>CONNECTING</span></span>
+      <span class="phase-badge">PHASE 1 · NO IMPACT</span>
+    </div>
+  </header>
+  <main class="page-shell" id="app" aria-live="polite"></main>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="../vaccine-data.js?v=phase1"></script>
+  <script src="../web/scripts/vaccine-data.js?v=phase1"></script>
+  <script src="../vaccine-bridge.js?v=phase1"></script>
+  <script src="../web/scripts/vaccine-bridge.js?v=phase1"></script>
+  <script src="phase1-models.js?v=phase1"></script>
+  <script src="phase1-adapter.js?v=phase1"></script>
+  <script src="phase1-app.js?v=phase1"></script>
+</body>
+</html>
