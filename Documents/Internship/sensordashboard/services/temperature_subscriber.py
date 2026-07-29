@@ -18,9 +18,11 @@ import psycopg
 
 try:
     from services.event_contract import format_timestamp, now_utc, parse_timestamp
+    from services.terminal_output import format_event_block, format_service_message
     from services.temperature_uncertainty import enrich_event
 except ImportError:  # pragma: no cover
     from event_contract import format_timestamp, now_utc, parse_timestamp
+    from terminal_output import format_event_block, format_service_message
     from temperature_uncertainty import enrich_event
 
 
@@ -66,11 +68,19 @@ REQUIRED_FIELDS = {
 class PersistenceResult:
     event_id: str
     duplicate: bool
+    received_at: datetime
+    stored_at: datetime | None
 
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Listen for vaccine temperature events from MQTT.")
     parser.add_argument("--write-db", action="store_true", help="Persist validated events to PostgreSQL.")
+    parser.add_argument(
+        "--output-mode",
+        choices=("none", "verbose"),
+        default="verbose",
+        help="Live terminal output detail (default: verbose).",
+    )
     return parser.parse_args()
 
 
@@ -199,7 +209,7 @@ def persist_event(
             "vaccine_inserted": vaccine_inserted,
         }, sort_keys=True)
     )
-    return PersistenceResult(normalized["event_id"], duplicate)
+    return PersistenceResult(normalized["event_id"], duplicate, received, None if duplicate else stored)
 
 
 def process_message(
@@ -232,54 +242,69 @@ def verify_database() -> int:
             return cursor.fetchone()[0]
 
 
-def _display_event(event: dict[str, Any]) -> None:
-    event_time = event.get("event_time")
-    source_time = event.get("source_time")
-    print(json.dumps({
-        "event_id": event.get("event_id"),
-        "pod": event.get("sensor_name"),
-        "vaccine": event.get("vaccine_type"),
-        "scenario": event.get("scenario"),
-        "temperature_c": event.get("temperature_c"),
-        "status": event.get("status"),
-        "event_time": format_timestamp(event_time) if isinstance(event_time, datetime) else event_time,
-        "source_time": format_timestamp(source_time) if isinstance(source_time, datetime) else source_time,
-    }, sort_keys=True))
-
-
 def main() -> int:
     args = parse_arguments()
+    message_count = 0
     if args.write_db:
         try:
             existing_rows = verify_database()
         except (psycopg.Error, RuntimeError) as exc:
             print(f"POSTGRESQL SETUP ERROR: {exc}", file=sys.stderr)
             return 1
-        print(f"PostgreSQL connection: OK; existing vaccine rows: {existing_rows}")
+        if args.output_mode == "verbose":
+            print(format_service_message("LISTENER", f"PostgreSQL connected; existing vaccine rows: {existing_rows}"), flush=True)
 
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
 
     def on_connect(client, userdata, flags, reason_code, properties):
         if reason_code != 0:
-            print(f"MQTT connection failed: {reason_code}")
+            if args.output_mode == "verbose":
+                print(format_service_message("LISTENER", f"MQTT connection failed: {reason_code}"), flush=True)
             return
         client.subscribe(MQTT_TOPIC, qos=0)
-        print(f"MQTT connection: OK; topic: {MQTT_TOPIC}; database writing: {'ENABLED' if args.write_db else 'DISABLED'}")
+        if args.output_mode == "verbose":
+            print(format_service_message(
+                "LISTENER",
+                f"MQTT connected; topic={MQTT_TOPIC}; database_writing={'ENABLED' if args.write_db else 'DISABLED'}",
+            ), flush=True)
 
     def on_message(client, userdata, message):
+        nonlocal message_count
+        message_count += 1
         try:
             # Capture listener receipt before validation or database work. The
             # value is passed through so it cannot be confused with stored_at.
             received_at = now_utc()
             event = validate_event(json.loads(message.payload.decode("utf-8")))
-            _display_event(event)
             if args.write_db:
                 result = persist_event(event, received_at=received_at, topic=message.topic)
-                print(f"Database write: {'DUPLICATE' if result.duplicate else 'SUCCESS'} ({result.event_id})")
+                if args.output_mode == "verbose":
+                    print(format_event_block(
+                        event,
+                        component="LISTENER",
+                        outcome="DUPLICATE" if result.duplicate else "PERSISTED",
+                        sequence=message_count,
+                        topic=message.topic,
+                        received_at=result.received_at,
+                        stored_at=result.stored_at,
+                    ), flush=True)
+            elif args.output_mode == "verbose":
+                print(format_event_block(
+                    event,
+                    component="LISTENER",
+                    outcome="VALIDATED (DATABASE WRITE DISABLED)",
+                    sequence=message_count,
+                    topic=message.topic,
+                    received_at=received_at,
+                ), flush=True)
         except (json.JSONDecodeError, ValueError) as exc:
             logging.getLogger(__name__).error(json.dumps({"event": "event_rejected", "error": str(exc)}))
+            if args.output_mode == "verbose":
+                print(format_service_message("LISTENER", f"REJECTED #{message_count:04d}: {exc}"), file=sys.stderr, flush=True)
         except psycopg.Error as exc:
             logging.getLogger(__name__).exception(json.dumps({"event": "database_write_failed", "error": str(exc)}))
+            if args.output_mode == "verbose":
+                print(format_service_message("LISTENER", f"DATABASE ERROR #{message_count:04d}: {exc}"), file=sys.stderr, flush=True)
 
     client.on_connect = on_connect
     client.on_message = on_message
@@ -287,10 +312,10 @@ def main() -> int:
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.loop_forever()
     except (ConnectionRefusedError, OSError) as exc:
-        print(f"MQTT CONNECTION ERROR: {exc}", file=sys.stderr)
+        print(format_service_message("LISTENER", f"MQTT CONNECTION ERROR: {exc}"), file=sys.stderr, flush=True)
         return 1
     except KeyboardInterrupt:
-        print("\nStopping temperature subscriber.")
+        print("\n" + format_service_message("LISTENER", "Stopping temperature subscriber."), flush=True)
     finally:
         client.disconnect()
     return 0

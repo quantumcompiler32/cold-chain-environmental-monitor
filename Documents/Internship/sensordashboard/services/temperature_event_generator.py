@@ -36,9 +36,11 @@ import paho.mqtt.client as mqtt
 try:
     from services.temperature_uncertainty import SENSOR_TOLERANCE_C, classify_uncertainty
     from services.event_contract import format_timestamp, now_utc, parse_timestamp
+    from services.terminal_output import format_event_block, format_service_message
 except ImportError:  # pragma: no cover - keeps direct script execution working.
     from temperature_uncertainty import SENSOR_TOLERANCE_C, classify_uncertainty
     from event_contract import format_timestamp, now_utc, parse_timestamp
+    from terminal_output import format_event_block, format_service_message
 
 
 # The local Mosquitto broker and topic shared with temperature_subscriber.py.
@@ -453,13 +455,10 @@ def main() -> int:
     rng = random.Random(args.seed)
     start_index = rng.randrange(len(readings)) if args.seed is not None else 0
     if args.output_mode == "verbose":
-        print(f"Sensor: {sensor_name}")
-        print(f"Vaccine profile: {profile.name}")
-        print(f"Scenario: {args.scenario}")
-        print(f"Temperature range: {profile.min_c}°C to {profile.max_c}°C")
-        print(f"Usable readings: {len(readings)}")
-        print(f"Publishing to {MQTT_TOPIC}")
-        print("Press Ctrl+C to stop.\n")
+        print(format_service_message("GENERATOR", f"sensor={sensor_name}; vaccine={profile.name}; scenario={args.scenario}"), flush=True)
+        print(format_service_message("GENERATOR", f"temperature_range={profile.min_c}°C to {profile.max_c}°C; usable_readings={len(readings)}"), flush=True)
+        print(format_service_message("GENERATOR", f"publishing_to={MQTT_TOPIC}; seed={args.seed}; interval_ms={args.interval_ms}"), flush=True)
+        print(format_service_message("GENERATOR", "Press Control-C to stop."), flush=True)
 
     # Reuse source rows cyclically when max-events is larger than the dataset.
     # That lets a short CSV produce a long controlled experiment.
@@ -500,14 +499,25 @@ def main() -> int:
 
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
                 published += 1
+                write_result = None
                 if direct_persist is not None:
-                    direct_persist(event, topic=MQTT_TOPIC)
+                    write_result = direct_persist(event, topic=MQTT_TOPIC)
                 if args.output_mode == "verbose":
-                    print(json.dumps(event, indent=2))
+                    outcome = "PUBLISHED"
+                    if write_result is not None:
+                        outcome += " + DUPLICATE" if write_result.duplicate else " + DB STORED"
+                    print(format_event_block(
+                        event,
+                        component="GENERATOR",
+                        outcome=outcome,
+                        sequence=count + 1,
+                        topic=MQTT_TOPIC,
+                        stored_at=write_result.stored_at if write_result is not None else None,
+                    ), flush=True)
             else:
                 failed += 1
                 if args.output_mode != "none":
-                    print(f"Publish failed with MQTT result code {result.rc}.", file=sys.stderr)
+                    print(format_service_message("GENERATOR", f"PUBLISH FAILED #{count + 1:04d}; mqtt_code={result.rc}"), file=sys.stderr, flush=True)
 
             count += 1
             index = (index + 1) % len(readings)
@@ -515,7 +525,7 @@ def main() -> int:
                 time.sleep(args.interval_ms / 1000.0)
     except KeyboardInterrupt:
         if args.output_mode != "none":
-            print("\nStopping temperature event generator.")
+            print("\n" + format_service_message("GENERATOR", "Stopping temperature event generator."), flush=True)
     finally:
         client.loop_stop()
         client.disconnect()

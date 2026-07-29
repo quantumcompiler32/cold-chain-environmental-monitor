@@ -133,6 +133,7 @@ class AtomicDualWriteTests(unittest.TestCase):
         )
 
         self.assertTrue(result.duplicate)
+        self.assertIsNone(result.stored_at)
         self.assertTrue(connection.committed)
         self.assertFalse(connection.rolled_back)
 

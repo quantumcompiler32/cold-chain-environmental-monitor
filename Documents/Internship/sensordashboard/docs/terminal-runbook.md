@@ -53,13 +53,13 @@ Open a new terminal and leave this process running:
 cd /Users/mokshjoshi/Documents/Internship/sensordashboard
 source .venv/bin/activate
 
-make start-listener
+make start-listener LISTENER_OUTPUT_MODE=verbose
 ```
 
 Equivalent command:
 
 ```bash
-python3 -m services.temperature_subscriber --write-db
+python3 -m services.temperature_subscriber --write-db --output-mode verbose
 ```
 
 The listener receives MQTT events, validates them, and writes both
@@ -115,7 +115,7 @@ make run-scenario \
   COUNT=30 \
   INTERVAL_MS=100 \
   SEED=42 \
-  OUTPUT_MODE=summary
+  OUTPUT_MODE=verbose
 ```
 
 Verify persistence after the generator finishes:
@@ -133,7 +133,7 @@ cd /Users/mokshjoshi/Documents/Internship/sensordashboard
 source .venv/bin/activate
 
 APP_ENV=demo make reset-demo RESET_CONFIRM=YES
-make start-listener
+make start-listener LISTENER_OUTPUT_MODE=verbose
 ```
 
 In another terminal, run recovery:
@@ -147,7 +147,7 @@ make run-scenario \
   COUNT=30 \
   INTERVAL_MS=100 \
   SEED=42 \
-  OUTPUT_MODE=summary
+  OUTPUT_MODE=verbose
 
 make verify
 ```
@@ -164,7 +164,7 @@ cd /Users/mokshjoshi/Documents/Internship/sensordashboard
 source .venv/bin/activate
 
 APP_ENV=demo make reset-demo RESET_CONFIRM=YES
-make start-listener
+make start-listener LISTENER_OUTPUT_MODE=verbose
 ```
 
 In another terminal, run mixed:
@@ -178,7 +178,7 @@ make run-scenario \
   COUNT=30 \
   INTERVAL_MS=100 \
   SEED=42 \
-  OUTPUT_MODE=summary
+  OUTPUT_MODE=verbose
 
 make verify
 ```
@@ -204,7 +204,7 @@ python3 -m services.temperature_event_generator \
   --count 30 \
   --interval-ms 100 \
   --seed 42 \
-  --output-mode summary
+  --output-mode verbose
 ```
 
 Moderna with a custom safe range:
@@ -222,7 +222,7 @@ python3 -m services.temperature_event_generator \
   --count 300 \
   --interval-ms 400 \
   --seed 42 \
-  --output-mode summary
+  --output-mode verbose
 ```
 
 The generator output modes are:
@@ -230,10 +230,15 @@ The generator output modes are:
 ```text
 none     no normal console output
 summary  one final run summary; this is the default
-verbose  print every generated event
+verbose  print every generated event in a formatted block
 ```
 
 For large runs, use `summary` or `none` instead of `verbose`.
+
+For a large run where you want to watch the generator but avoid a very long
+terminal log, use `summary` in the generator and keep the listener in
+`LISTENER_OUTPUT_MODE=verbose`. The listener will still show every event that
+was received and persisted.
 
 ## 9. Verify the database before opening the dashboard
 

@@ -1,5 +1,6 @@
 PYTHON ?= .venv/bin/python
 APP_ENV ?= development
+LISTENER_OUTPUT_MODE ?= verbose
 
 .PHONY: test reset-demo verify start-infrastructure start-listener run-scenario start-dashboard stop-demo
 
@@ -18,7 +19,7 @@ start-infrastructure:
 	brew services start mosquitto
 
 start-listener:
-	$(PYTHON) -m services.temperature_subscriber --write-db
+	$(PYTHON) -m services.temperature_subscriber --write-db --output-mode $(LISTENER_OUTPUT_MODE)
 
 run-scenario:
 	$(PYTHON) -m services.temperature_event_generator --scenario $(SCENARIO) --count $(or $(COUNT),30) --interval-ms $(or $(INTERVAL_MS),100) --output-mode $(or $(OUTPUT_MODE),summary) --seed $(or $(SEED),42)
