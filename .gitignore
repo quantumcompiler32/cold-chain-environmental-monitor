@@ -1,0 +1,7 @@
+# Keep the full paper dataset and local credentials outside GitHub.
+data/full/
+*.sqlite
+*.db
+.env
+__pycache__/
+node_modules/
