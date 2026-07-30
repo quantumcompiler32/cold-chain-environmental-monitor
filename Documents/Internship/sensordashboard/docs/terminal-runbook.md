@@ -8,11 +8,12 @@ Project folder:
 /Users/mokshjoshi/Documents/Internship/sensordashboard
 ```
 
-The three scenarios are:
+The four scenarios are:
 
 - `normal`: readings stay in the safe range.
 - `recovery`: readings start warm and move back toward the target.
 - `mixed`: one run split into normal, cooling failure, and recovery phases.
+- `outlier`: every reading is outside the safe range, alternating cold and warm.
 
 ## Run the demo
 
@@ -111,6 +112,23 @@ python3 -m services.temperature_event_generator \
   --seed 42 \
   --output-mode verbose
 ```
+
+Outlier:
+
+```bash
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+source .venv/bin/activate
+python3 -m services.temperature_event_generator \
+  --sensor Pod1 \
+  --vaccine pfizer_ultralow \
+  --scenario outlier \
+  --count 30 \
+  --interval-ms 100 \
+  --output-mode verbose
+```
+
+Outlier does not need a seed. Every event is deliberately too cold or too warm
+for the selected vaccine range.
 
 For a mixed run, the terminal and dashboard show:
 
@@ -274,8 +292,24 @@ psql -U mokshjoshi -d iotdb
 \d telemetry_logs
 \d vaccine_temperature_events
 
-SELECT COUNT(*) FROM telemetry_logs;
-SELECT COUNT(*) FROM vaccine_temperature_events;
+SELECT COUNT(*) AS raw_event_count FROM telemetry_logs;
+SELECT COUNT(*) AS vaccine_event_count FROM vaccine_temperature_events;
+
+SELECT
+    raw.event_id,
+    raw.event_time,
+    raw.received_at,
+    raw.stored_at,
+    vaccine.sensor_name AS pod,
+    vaccine.vaccine_type,
+    vaccine.scenario,
+    vaccine.scenario_phase,
+    vaccine.temperature_c,
+    vaccine.operational_status
+FROM telemetry_logs AS raw
+JOIN vaccine_temperature_events AS vaccine USING (event_id)
+ORDER BY raw.event_time DESC, raw.event_id DESC
+LIMIT 10;
 
 SELECT
     event_id,
@@ -298,6 +332,9 @@ LIMIT 10;
 
 \q
 ```
+
+The first two queries show that both tables received rows. The join shows that
+the same `event_id` connects the generic raw event to the vaccine-specific row.
 
 ## Tests
 

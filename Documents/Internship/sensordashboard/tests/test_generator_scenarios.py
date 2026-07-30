@@ -30,6 +30,21 @@ class GeneratorScenarioTests(unittest.TestCase):
         self.assertGreater(first, self.profile.max_c)
         self.assertEqual(last, self.profile.target_c)
 
+    def test_outlier_is_an_isolated_out_of_range_scenario(self):
+        values = [
+            transform_temperature(-78.5, self.profile, "outlier", index, 6)
+            for index in range(1, 7)
+        ]
+
+        self.assertEqual(values[0], self.profile.min_c - 1.0)
+        self.assertEqual(values[1], self.profile.max_c + 1.0)
+        self.assertTrue(
+            all(
+                value < self.profile.min_c or value > self.profile.max_c
+                for value in values
+            )
+        )
+
     def test_mixed_has_normal_failure_and_recovery_phases(self):
         events = [
             make_event("Pod1", self.row, self.profile, "mixed", event_number=index, total_events=9, event_time=self.event_time)
@@ -41,12 +56,12 @@ class GeneratorScenarioTests(unittest.TestCase):
         self.assertGreater(events[3]["temperature_c"], self.profile.max_c)
         self.assertEqual(events[-1]["temperature_c"], self.profile.target_c)
 
-    def test_cli_accepts_the_three_current_scenarios_and_summary_controls(self):
-        with patch.object(sys, "argv", ["generator", "--scenario", "mixed", "--count", "9", "--seed", "42", "--output-mode", "summary", "--vaccine", "pfizer_ultralow"]):
+    def test_cli_accepts_outlier_without_a_seed(self):
+        with patch.object(sys, "argv", ["generator", "--scenario", "outlier", "--count", "9", "--output-mode", "summary", "--vaccine", "pfizer_ultralow"]):
             args = parse_arguments()
-        self.assertEqual(args.scenario, "mixed")
+        self.assertEqual(args.scenario, "outlier")
         self.assertEqual(args.count, 9)
-        self.assertEqual(args.seed, 42)
+        self.assertIsNone(args.seed)
         self.assertEqual(args.output_mode, "summary")
 
     def test_csv_temperature_guidance_does_not_require_or_import_a_timestamp(self):

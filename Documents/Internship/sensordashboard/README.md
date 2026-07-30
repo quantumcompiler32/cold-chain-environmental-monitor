@@ -107,11 +107,12 @@ Open <http://127.0.0.1:8765/index.html> for analytics or
 <http://127.0.0.1:8765/pages/domain-vaccine-raw.html> for the live raw event
 stream.
 
-The generator supports exactly three current user-facing scenarios:
+The generator supports four current user-facing scenarios:
 
 - `normal`: translated source variation stays inside the vaccine profile range.
 - `recovery`: begins above the safe range and moves back toward the profile target.
 - `mixed`: deterministic normal, cooling-failure, and recovery phases.
+- `outlier`: every event is intentionally outside the safe range, alternating cold and warm readings.
 
 The analytics chart splits a mixed run into `Normal`, `Cooling failure`, and
 `Recovery` phase bars while preserving `mixed` as the stored top-level
@@ -121,7 +122,7 @@ event payload.
 The public CLI controls are:
 
 ```text
---scenario normal|recovery|mixed
+--scenario normal|recovery|mixed|outlier
 --vaccine pfizer_ultralow|moderna
 --count N
 --interval-ms N

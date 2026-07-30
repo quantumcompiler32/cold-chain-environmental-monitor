@@ -61,7 +61,7 @@ SOURCE_PROFILE_TARGET_C = -78.5
 STABLE_TOLERANCE_C = 1.0
 OUTLIER_OFFSET_C = 1.0
 FAILURE_OFFSET_C = 5.0
-SCENARIOS = ("normal", "recovery", "mixed")
+SCENARIOS = ("normal", "recovery", "mixed", "outlier")
 
 
 @dataclass(frozen=True)
@@ -290,9 +290,9 @@ def transform_temperature(
     """Apply deterministic scenario behavior to one source reading.
 
     Normal preserves the source variation while staying inside the selected
-    profile range. Outlier injects occasional exceptions, failure holds a
-    sustained warm excursion, and recovery interpolates from failure back to
-    the profile target across the requested event count.
+    profile range. Outlier makes every reading an intentional exception,
+    failure holds a sustained warm excursion, and recovery interpolates from
+    failure back to the profile target across the requested event count.
     """
     # Every scenario needs a complete safe range to compare against.
     if profile.min_c is None or profile.max_c is None:
@@ -306,12 +306,9 @@ def transform_temperature(
         # create an incident in the normal test scenario.
         return safe_baseline_temperature(source_temperature_c, profile)
     if scenario == "outlier":
-        # Every twentieth event is an intentional exception. Alternating the
+        # Every event is intentionally outside the safe range. Alternating the
         # direction gives the analysis report both cold and warm examples.
-        if event_number % 20 != 0:
-            return safe_baseline_temperature(source_temperature_c, profile)
-        outlier_number = event_number // 20
-        if outlier_number % 2 == 1:
+        if event_number % 2 == 1:
             return profile.min_c - OUTLIER_OFFSET_C
         return profile.max_c + OUTLIER_OFFSET_C
     if scenario in {"failure", "cooling_failure"}:

@@ -117,5 +117,8 @@ python3 -m services.temperature_event_generator --scenario mixed --count 30 --se
 python3 scripts/verify_persistence.py
 ```
 
+Use `--scenario outlier` when you want every generated event to be outside the
+safe range. The generator alternates between too cold and too warm readings.
+
 ML is not part of this rehearsal. The important story is current event
 creation, reliable persistence, verification, and truthful dashboard display.
