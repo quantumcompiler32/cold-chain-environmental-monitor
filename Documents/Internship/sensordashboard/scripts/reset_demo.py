@@ -43,6 +43,9 @@ def main() -> int:
         with connection.cursor() as cursor:
             cursor.execute(RESET_SQL)
             cursor.execute(BOOTSTRAP_SQL)
+            # Tell already-open dashboard streams that their in-memory
+            # analytics must be cleared for the next isolated demo run.
+            cursor.execute("SELECT pg_notify(%s, %s)", ("cold_chain_reset", "demo_reset"))
     print("Application tables and indexes recreated successfully.")
     return 0
 

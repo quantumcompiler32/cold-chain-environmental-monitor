@@ -55,6 +55,7 @@ Open the dashboard at:
 
 ```text
 http://127.0.0.1:8765/index.html
+http://127.0.0.1:8765/pages/domain-vaccine-raw.html
 ```
 
 Open Terminal 4 and publish the normal scenario:
@@ -85,6 +86,11 @@ storage result, scenario, phase when present, pod status, and alert. The
 generator's default output is `summary`, which reports the requested scenario
 separately from the optional mixed-run phase breakdown and avoids printing
 every event in large runs.
+
+The analytics and raw-event pages receive new committed rows immediately over
+the live event stream. They do not wait for a five-second browser poll. When
+the reset command runs, already-open pages receive a reset signal and clear
+their in-memory analytics before the next scenario begins.
 
 ## Run recovery by itself
 

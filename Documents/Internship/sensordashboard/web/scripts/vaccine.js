@@ -4,7 +4,7 @@
   if (!data || !bridge) return;
 
   const COLORS = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#6b7280'];
-  const SCENARIO_COLORS = { normal: '#10b981', recovery: '#3b82f6', mixed: '#8b5cf6', outlier: '#f59e0b', failure: '#ef4444' };
+  const SCENARIO_COLORS = { normal: '#10b981', recovery: '#3b82f6', mixed: '#8b5cf6', cooling_failure: '#ef4444', outlier: '#f59e0b', failure: '#ef4444' };
   const OPERATIONAL_STATUS_COLORS = { NORMAL: '#10b981', WARNING: '#f59e0b', CRITICAL: '#ef4444', SENSOR_FAULT: '#ef4444', OFFLINE: '#6b7280', EMPTY: '#60a5fa', ENERGY_WASTE: '#ec4899' };
   const OPERATIONAL_STATUS_ICONS = { NORMAL: '✓', WARNING: '!', CRITICAL: '!', SENSOR_FAULT: '⚠', OFFLINE: '×', EMPTY: '○', ENERGY_WASTE: '⚡' };
   const DEFAULT_SENSORS = ['Pod1', 'Pod2', 'Pod3', 'Pod6', 'Pod11', 'Pod20'];
@@ -65,7 +65,7 @@
         <span class="pod-tile-head"><span class="pod-id">${esc(event.sensor_name)}</span><span class="pod-icon" aria-hidden="true">${OPERATIONAL_STATUS_ICONS[status] || '?'}</span></span>
         <span class="pod-temperature">${formatC(event.temperature_c)}</span>
         <span class="pod-state">${esc(operationalLabel(status))} · ${esc(event.occupancy_state || 'loaded')}</span>
-        <span class="pod-alert">${esc(alert || event.scenario || 'No alert')}</span>
+        <span class="pod-alert">${esc(alert || event.scenario_phase || event.scenario || 'No alert')}</span>
       </button>`;
     }).join('') : '<div class="detail-muted">No persisted Pods match this scope.</div>';
     target.querySelectorAll('[data-pod]').forEach((button) => button.addEventListener('click', () => openPodDetails(button.dataset.pod)));
@@ -98,6 +98,7 @@
       ['Safe range', `${formatC(latest.storage_min_c)} to ${formatC(latest.storage_max_c)}`],
       ['Deviation', deviation == null ? '—' : `${deviation >= 0 ? '+' : ''}${deviation.toFixed(2)}°C from target`],
       ['Scenario', latest.scenario],
+      ['Phase', latest.scenario_phase || '—'],
       ['Last event', formatDateTime(latest.event_time)],
     ].map(([label, value]) => `<div><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join('');
     const trend = history.slice(-8).map((event) => `${formatC(event.temperature_c)} · ${formatDateTime(event.event_time)}`).join('<br>');
@@ -127,10 +128,10 @@
     if (!scope) return 'Live · current persisted events';
     const start = scope.effective_start ? formatDateTime(scope.effective_start) : 'beginning';
     const end = scope.effective_end ? formatDateTime(scope.effective_end) : 'now';
-    return `${currentEndpoint === '/api/live' ? 'Live' : 'Historical'} · ${start} → ${end}`;
+    return `${currentEndpoint.startsWith('/api/live') ? 'Live' : 'Historical'} · ${start} → ${end}`;
   }
 
-  function restartWatch(path = '/api/live') {
+  function restartWatch(path = '/api/live/stream') {
     if (stopWatching) stopWatching();
     currentEndpoint = path;
     stopWatching = bridge.watchDatabase(
@@ -139,7 +140,7 @@
         responseScope = payload?.scope || null;
         dataLabel = events.length.toLocaleString() + ' persisted PostgreSQL event' + (events.length === 1 ? '' : 's');
         populateFilterOptions();
-        setBridgeState(true, path === '/api/live' ? 'Live PostgreSQL connected' : 'Historical PostgreSQL connected');
+        setBridgeState(true, path.startsWith('/api/live') ? 'Live PostgreSQL connected' : 'Historical PostgreSQL connected');
         render();
       },
       (error) => {
@@ -164,7 +165,7 @@
     if (range === 'live') {
       $('filterStart').value = '';
       $('filterEnd').value = '';
-      restartWatch('/api/live');
+      restartWatch('/api/live/stream');
       return;
     }
     const end = new Date();
@@ -371,7 +372,7 @@
     $('scenarioLegend').innerHTML = scenarios.map((scenario) => {
       const expected = coverage[scenario.label]?.expected;
       const label = Number.isFinite(expected) ? `${scenario.count}/${expected}` : `${scenario.count}`;
-      return `<span><i class="legend-dot" style="background:${SCENARIO_COLORS[scenario.label] || '#6b7280'}"></i>${esc(scenario.label)} ${label}</span>`;
+      return `<span><i class="legend-dot" style="background:${SCENARIO_COLORS[scenario.label] || '#6b7280'}"></i>${esc(data.scenarioDisplayLabel(scenario.label))} ${label}</span>`;
     }).join('');
     const received = scenarios.reduce((sum, scenario) => sum + scenario.count, 0);
     const expected = Object.values(coverage).reduce((sum, item) => sum + Number(item.expected || 0), 0);
@@ -396,7 +397,10 @@
   }
 
   function renderTable(summaries) {
-    $('sensorTable').innerHTML = summaries.map((sensor) => '<tr><td class="sensor-name">' + esc(sensor.sensorName) + '</td><td class="temp">' + formatC(sensor.latestTemperatureC) + '</td><td><span class="condition ' + statusClass(sensor.status) + '">' + statusLabel(sensor.status) + '</span></td><td class="muted-cell">' + esc(sensor.latestScenario) + '</td><td class="muted-cell">' + sensor.readingCount + '</td><td><button class="row-action" type="button" data-focus-sensor="' + esc(sensor.sensorName) + '">View trend</button></td></tr>').join('');
+    $('sensorTable').innerHTML = summaries.map((sensor) => {
+      const scenario = sensor.latestPhase ? `${sensor.latestScenario} · ${sensor.latestPhase}` : sensor.latestScenario;
+      return '<tr><td class="sensor-name">' + esc(sensor.sensorName) + '</td><td class="temp">' + formatC(sensor.latestTemperatureC) + '</td><td><span class="condition ' + statusClass(sensor.status) + '">' + statusLabel(sensor.status) + '</span></td><td class="muted-cell">' + esc(scenario) + '</td><td class="muted-cell">' + sensor.readingCount + '</td><td><button class="row-action" type="button" data-focus-sensor="' + esc(sensor.sensorName) + '">View trend</button></td></tr>';
+    }).join('');
     $('sensorTable').querySelectorAll('[data-focus-sensor]').forEach((button) => button.addEventListener('click', () => {
       selectedSensors = [button.dataset.focusSensor, ...selectedSensors.filter((sensor) => sensor !== button.dataset.focusSensor)].slice(0, 6);
       render();
@@ -461,5 +465,5 @@
 
   applyProfile('pfizer_ultralow');
   render();
-  restartWatch('/api/live');
+  restartWatch('/api/live/stream');
 })(typeof globalThis === 'undefined' ? this : globalThis);

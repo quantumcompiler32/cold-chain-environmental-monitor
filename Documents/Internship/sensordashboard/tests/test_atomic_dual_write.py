@@ -99,12 +99,13 @@ class AtomicDualWriteTests(unittest.TestCase):
         self.assertFalse(result.duplicate)
         self.assertTrue(connection.committed)
         self.assertFalse(connection.rolled_back)
-        self.assertEqual(len(cursor.statements), 2)
+        self.assertEqual(len(cursor.statements), 3)
         generic_params = cursor.statements[0][1]
         vaccine_params = cursor.statements[1][1]
         self.assertEqual(generic_params[0], vaccine_params[0])
         self.assertEqual(generic_params[-1], vaccine_params[-1])
         self.assertEqual(generic_params[-1].microsecond, 456000)
+        self.assertIn("pg_notify", cursor.statements[2][0])
 
     def test_failure_rolls_back_both_writes(self):
         cursor = FakeCursor(fail_on_statement=2)

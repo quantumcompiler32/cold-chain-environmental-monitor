@@ -124,6 +124,16 @@ class DashboardBridgeTests(unittest.TestCase):
         self.assertEqual(params, ("Pod1", "normal"))
         self.assertEqual(result[0]["operational_status"], "NORMAL")
 
+    def test_analytics_splits_mixed_phases_without_changing_top_level_scenario(self):
+        analytics = bridge.aggregate_analytics([
+            {"operational_status": "NORMAL", "scenario": "mixed", "scenario_phase": "normal", "severity": "info"},
+            {"operational_status": "CRITICAL", "scenario": "mixed", "scenario_phase": "cooling_failure", "severity": "critical"},
+            {"operational_status": "CRITICAL", "scenario": "mixed", "scenario_phase": "recovery", "severity": "critical"},
+        ])
+
+        self.assertEqual(analytics["scenario_counts"], {"mixed": 3})
+        self.assertEqual(analytics["phase_counts"], {"normal": 1, "cooling_failure": 1, "recovery": 1})
+
 
 if __name__ == "__main__":
     unittest.main()

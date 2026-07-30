@@ -31,6 +31,10 @@ CSV guidance → event generator → Mosquitto MQTT → listener
 - The listener stamps `received_at` when it ingests the MQTT message.
 - The persistence transaction stamps `stored_at` and writes both tables.
 - The dashboard never connects directly to PostgreSQL and never writes data.
+- The live dashboard and raw event page receive committed events through a
+  PostgreSQL `LISTEN/NOTIFY` channel exposed as Server-Sent Events (SSE).
+- A demo reset publishes a reset notification so open dashboard pages clear
+  their in-memory analytics before the next isolated scenario.
 
 ## Timestamp fields
 
@@ -99,13 +103,20 @@ cd /Users/mokshjoshi/Documents/Internship/sensordashboard/web
 python3 -m http.server 8765 --bind 127.0.0.1
 ```
 
-Open <http://127.0.0.1:8765/index.html>.
+Open <http://127.0.0.1:8765/index.html> for analytics or
+<http://127.0.0.1:8765/pages/domain-vaccine-raw.html> for the live raw event
+stream.
 
 The generator supports exactly three current user-facing scenarios:
 
 - `normal`: translated source variation stays inside the vaccine profile range.
 - `recovery`: begins above the safe range and moves back toward the profile target.
 - `mixed`: deterministic normal, cooling-failure, and recovery phases.
+
+The analytics chart splits a mixed run into `Normal`, `Cooling failure`, and
+`Recovery` phase bars while preserving `mixed` as the stored top-level
+scenario. The raw event page shows both fields and the complete persisted
+event payload.
 
 The public CLI controls are:
 

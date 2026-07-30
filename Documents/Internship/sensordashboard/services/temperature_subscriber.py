@@ -31,6 +31,7 @@ except ImportError:  # pragma: no cover
 MQTT_BROKER = os.environ.get("MQTT_BROKER", "localhost")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "devices/temperature")
+EVENT_NOTIFY_CHANNEL = "cold_chain_events"
 
 
 def postgres_settings() -> dict[str, Any]:
@@ -209,6 +210,14 @@ def persist_event(
             generic_inserted = cursor.fetchone() is not None
             cursor.execute(vaccine_sql, params_vaccine)
             vaccine_inserted = cursor.fetchone() is not None
+            if generic_inserted and vaccine_inserted:
+                # PostgreSQL delivers this only after the surrounding
+                # transaction commits, so the dashboard never sees a
+                # notification for a rolled-back or partial write.
+                cursor.execute(
+                    "SELECT pg_notify(%s, %s)",
+                    (EVENT_NOTIFY_CHANNEL, normalized["event_id"]),
+                )
 
     duplicate = not generic_inserted or not vaccine_inserted
     logging.getLogger(__name__).info(

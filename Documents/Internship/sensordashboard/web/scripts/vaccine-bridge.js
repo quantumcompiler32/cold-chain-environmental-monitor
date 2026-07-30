@@ -19,7 +19,52 @@
     URL.revokeObjectURL(link.href);
   }
 
+  function sortEvents(events) {
+    return events.slice().sort((left, right) => {
+      const timeDifference = Date.parse(left.event_time || left.timestamp || '') - Date.parse(right.event_time || right.timestamp || '');
+      return timeDifference || String(left.event_id || '').localeCompare(String(right.event_id || ''));
+    });
+  }
+
+  function watchEventStream(onEvents, onError, path) {
+    const eventSource = new EventSource(`${BRIDGE_URL}${path}`);
+    const eventsById = new Map();
+    let active = true;
+    const publish = (payload) => {
+      if (!active) return;
+      const events = sortEvents(Array.from(eventsById.values()));
+      onEvents(events, payload);
+    };
+    eventSource.addEventListener('snapshot', (message) => {
+      const payload = JSON.parse(message.data);
+      eventsById.clear();
+      (payload.events || []).forEach((event) => eventsById.set(String(event.event_id), event));
+      publish(payload);
+    });
+    eventSource.addEventListener('event', (message) => {
+      const payload = JSON.parse(message.data);
+      const event = payload.event;
+      if (event?.event_id) eventsById.set(String(event.event_id), event);
+      publish(payload);
+    });
+    eventSource.addEventListener('reset', (message) => {
+      const payload = JSON.parse(message.data);
+      eventsById.clear();
+      publish(payload);
+    });
+    eventSource.onerror = () => {
+      if (active) onError(new Error('Live event stream is unavailable.'));
+    };
+    return () => {
+      active = false;
+      eventSource.close();
+    };
+  }
+
   function watchDatabase(onEvents, onError, path = '/api/live') {
+    if (path === '/api/live/stream' && typeof global.EventSource === 'function') {
+      return watchEventStream(onEvents, onError, path);
+    }
     let active = true;
     const poll = async () => {
       try {
@@ -30,7 +75,7 @@
       }
     };
     poll();
-    const timer = setInterval(poll, 5000);
+    const timer = setInterval(poll, path === '/api/live' ? 1000 : 5000);
     return () => {
       active = false;
       clearInterval(timer);

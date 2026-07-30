@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { normalizeEvent, statusLabel, operationalStatusLabel, buildScenarioCounts } = require('./vaccine-data.js');
+const { normalizeEvent, statusLabel, operationalStatusLabel, buildScenarioCounts, scenarioDisplayLabel } = require('./vaccine-data.js');
 
 test('normalizes event timestamps without importing a CSV source timestamp', () => {
   const event = normalizeEvent({
@@ -35,6 +35,7 @@ test('keeps the mixed scenario phase available to the dashboard', () => {
   assert.equal(event.scenario, 'mixed');
   assert.equal(event.scenario_phase, 'cooling_failure');
   assert.equal(event.status, 'TOO_WARM');
+  assert.equal(scenarioDisplayLabel(event.scenario_phase), 'Cooling failure');
 });
 
 test('uses readable labels for persisted statuses and counts scenarios', () => {
@@ -46,4 +47,9 @@ test('uses readable labels for persisted statuses and counts scenarios', () => {
     { scenario: 'mixed' },
     { scenario: 'mixed' },
   ]), { normal: 1, mixed: 2 });
+  assert.deepEqual(buildScenarioCounts([
+    { scenario: 'mixed', scenario_phase: 'normal' },
+    { scenario: 'mixed', scenario_phase: 'recovery' },
+    { scenario: 'mixed', scenario_phase: 'recovery' },
+  ]), { normal: 1, recovery: 2 });
 });

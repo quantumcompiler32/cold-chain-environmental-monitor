@@ -338,21 +338,38 @@
 
   function buildScenarioCounts(events) {
     return events.reduce((counts, event) => {
-      counts[event.scenario] = (counts[event.scenario] || 0) + 1;
+      const key = scenarioDisplayKey(event);
+      counts[key] = (counts[key] || 0) + 1;
       return counts;
     }, {});
+  }
+
+  function scenarioDisplayKey(event) {
+    return event.scenario === 'mixed' && event.scenario_phase
+      ? event.scenario_phase
+      : event.scenario;
+  }
+
+  function scenarioDisplayLabel(value) {
+    return {
+      normal: 'Normal',
+      recovery: 'Recovery',
+      cooling_failure: 'Cooling failure',
+      mixed: 'Mixed',
+    }[value] || String(value || 'Unknown').replaceAll('_', ' ');
   }
 
   function buildScenarioOutcomeSeries(events) {
     const groups = new Map();
     events.forEach((event) => {
-      const group = groups.get(event.scenario) || { label: event.scenario, total: 0, tooCold: 0, tooWarm: 0, borderline: 0, crossing: 0 };
+      const key = scenarioDisplayKey(event);
+      const group = groups.get(key) || { label: key, total: 0, tooCold: 0, tooWarm: 0, borderline: 0, crossing: 0 };
       group.total += 1;
       if (event.status === 'TOO_COLD') group.tooCold += 1;
       if (event.status === 'TOO_WARM') group.tooWarm += 1;
       if (String(event.uncertainty_status || '').startsWith('BORDERLINE')) group.borderline += 1;
       if (event.boundary_crossing) group.crossing += 1;
-      groups.set(event.scenario, group);
+      groups.set(key, group);
     });
     return Array.from(groups.values());
   }
@@ -411,6 +428,8 @@
     buildChartSeries,
     buildStatusCounts,
     buildScenarioCounts,
+    scenarioDisplayKey,
+    scenarioDisplayLabel,
     buildScenarioOutcomeSeries,
     buildSensorSpreadSeries,
     buildUncertaintySeries,

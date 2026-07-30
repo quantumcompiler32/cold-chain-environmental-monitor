@@ -39,6 +39,9 @@ except ImportError:  # pragma: no cover
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
+EVENT_NOTIFY_CHANNEL = "cold_chain_events"
+RESET_NOTIFY_CHANNEL = "cold_chain_reset"
+LIVE_SNAPSHOT_LIMIT = 5000
 
 # These are the PostgreSQL column names selected by the adapter. Keep the
 # order stable so the CSV export is deterministic and easy to load in Colab.
@@ -268,9 +271,20 @@ class DatabaseReader:
         query = EVENT_SELECT + where_sql + "\n" + order_sql + "\n" + limit_sql
         return self._map_events(self._rows(query, params))
 
-    def fetch_latest_events(self, filters: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    def fetch_latest_events(
+        self,
+        filters: dict[str, str] | None = None,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
         """Return the bounded newest-event verification view."""
-        return self.fetch_events(filters, latest_first=True, limit=100)
+        return self.fetch_events(filters, latest_first=True, limit=limit)
+
+    def fetch_event(self, event_id: str) -> dict[str, Any] | None:
+        """Read one committed event identified by the stable event ID."""
+        query = EVENT_SELECT + "\nWHERE event_id = %s\nLIMIT 1"
+        events = self._map_events(self._rows(query, (event_id,)))
+        return events[0] if events else None
 
     def export_csv(self, filters: dict[str, str] | None = None) -> str:
         """Export every stored event, not the browser's filtered view."""
@@ -329,7 +343,31 @@ def response_scope(filters: dict[str, str], events: list[dict[str, Any]]) -> dic
     }
 
 
+def aggregate_analytics(events: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Count observed pod states, top-level scenarios, phases, and severity."""
+    status_counts: dict[str, int] = {}
+    scenario_counts: dict[str, int] = {}
+    phase_counts: dict[str, int] = {}
+    severity_counts: dict[str, int] = {}
+    for event in events:
+        status = event.get("operational_status", "UNKNOWN")
+        scenario = event.get("scenario", "unknown")
+        phase = event.get("scenario_phase") or scenario
+        severity = event.get("severity", "info")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        scenario_counts[scenario] = scenario_counts.get(scenario, 0) + 1
+        phase_counts[phase] = phase_counts.get(phase, 0) + 1
+        severity_counts[severity] = severity_counts.get(severity, 0) + 1
+    return {
+        "status_counts": status_counts,
+        "scenario_counts": scenario_counts,
+        "phase_counts": phase_counts,
+        "severity_counts": severity_counts,
+    }
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
     reader: DatabaseReader
 
     def _headers(self, content_type: str = "application/json") -> None:
@@ -357,6 +395,76 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _sse_headers(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+    def _sse(self, event_name: str, payload: Any) -> None:
+        body = f"event: {event_name}\ndata: {json.dumps(payload)}\n\n".encode("utf-8")
+        self.wfile.write(body)
+        self.wfile.flush()
+
+    def _event_stream(self) -> None:
+        """Push committed event and demo-reset notifications to the browser."""
+        # An SSE request owns its HTTP connection until the client closes it.
+        # Prevent BaseHTTPRequestHandler from trying to parse a second request
+        # after a browser tab or curl disconnects.
+        self.close_connection = True
+        self._sse_headers()
+        try:
+            with self.reader._connect() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET TIME ZONE 'UTC'")
+                    cursor.execute(f"LISTEN {EVENT_NOTIFY_CHANNEL}")
+                    cursor.execute(f"LISTEN {RESET_NOTIFY_CHANNEL}")
+                connection.commit()
+
+                # LISTEN is active before the snapshot is read. Any event
+                # committed during the snapshot is therefore queued and is
+                # delivered after the browser receives its initial state.
+                snapshot = self.reader.fetch_latest_events(limit=LIVE_SNAPSHOT_LIMIT)
+                self._sse("snapshot", {
+                    "events": list(reversed(snapshot)),
+                    "count": len(snapshot),
+                    "source": "postgresql",
+                    "live_monitoring": True,
+                    "scope": response_scope({}, snapshot),
+                })
+
+                while True:
+                    notifications = connection.notifies(timeout=15)
+                    delivered = False
+                    for notification in notifications:
+                        delivered = True
+                        if notification.channel == RESET_NOTIFY_CHANNEL:
+                            self._sse("reset", {
+                                "events": [],
+                                "count": 0,
+                                "source": "postgresql",
+                                "live_monitoring": True,
+                                "reset": True,
+                                "scope": response_scope({}, []),
+                            })
+                            continue
+                        event = self.reader.fetch_event(notification.payload)
+                        if event is not None:
+                            self._sse("event", {
+                                "event": event,
+                                "source": "postgresql",
+                                "live_monitoring": True,
+                            })
+                    if not delivered:
+                        # Keep proxies and browser connections alive while no
+                        # event is being generated. This is not a data poll.
+                        self.wfile.write(b": keep-alive\n\n")
+                        self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, DatabaseUnavailable):
+            return
+
     def do_OPTIONS(self):
         # Browsers may ask permission before a cross-origin GET request.
         self.send_response(204)
@@ -380,6 +488,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except DatabaseUnavailable as exc:
                 self._json(200, {"ok": True, "database_connected": False, "read_only": True, "error": str(exc)})
             return
+        if path == "/api/live/stream":
+            self._event_stream()
+            return
         if path in {"/api/events", "/api/live", "/api/verification/latest-events"}:
             try:
                 latest = path == "/api/verification/latest-events"
@@ -399,18 +510,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/analytics":
             try:
                 events = self.reader.fetch_events(filters)
-                status_counts: dict[str, int] = {}
-                scenario_counts: dict[str, int] = {}
-                severity_counts: dict[str, int] = {}
-                for event in events:
-                    status_counts[event["operational_status"]] = status_counts.get(event["operational_status"], 0) + 1
-                    scenario_counts[event["scenario"]] = scenario_counts.get(event["scenario"], 0) + 1
-                    severity_counts[event["severity"]] = severity_counts.get(event["severity"], 0) + 1
+                analytics = aggregate_analytics(events)
                 self._json(200, {
                     "count": len(events),
-                    "status_counts": status_counts,
-                    "scenario_counts": scenario_counts,
-                    "severity_counts": severity_counts,
+                    **analytics,
                     "source": "postgresql",
                     "live_monitoring": False,
                     "scope": response_scope(filters, events),
