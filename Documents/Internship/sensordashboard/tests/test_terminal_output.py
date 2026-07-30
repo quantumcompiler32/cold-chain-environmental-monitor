@@ -22,7 +22,6 @@ EVENT = {
     "boundary_crossing": False,
     "measurement_confidence": "Approximately +/-0.5 C Type-T thermocouple accuracy",
     "event_time": "2026-07-29T12:00:00.123+00:00",
-    "source_time": "2020-12-16T11:26:43.000+00:00",
 }
 
 
@@ -39,9 +38,11 @@ class TerminalOutputTests(unittest.TestCase):
         )
 
         self.assertIn("[LISTENER] PERSISTED #0003", output)
-        self.assertIn("scenario      : mixed / recovery", output)
+        self.assertIn("scenario      : mixed", output)
+        self.assertIn("phase         : recovery", output)
         self.assertIn("temperature   : -78.50 °C", output)
         self.assertIn("event_time    : 2026-07-29T12:00:00.123+00:00", output)
+        self.assertNotIn("source_time", output)
         self.assertIn("received_at   : 2026-07-29T12:00:00.140+00:00", output)
         self.assertIn("stored_at     : 2026-07-29T12:00:00.142+00:00", output)
         self.assertIn("topic         : devices/temperature", output)

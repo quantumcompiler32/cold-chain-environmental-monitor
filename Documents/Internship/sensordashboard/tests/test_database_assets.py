@@ -13,7 +13,10 @@ class DatabaseAssetTests(unittest.TestCase):
         self.assertIn("event_time TIMESTAMPTZ", sql)
         self.assertIn("received_at TIMESTAMPTZ", sql)
         self.assertIn("stored_at TIMESTAMPTZ", sql)
+        for field in ("occupancy_state", "batch_id", "cooling_enabled", "operational_status", "severity", "rule_alert"):
+            self.assertIn(field, sql)
         self.assertNotIn("ALTER TABLE", sql)
+        self.assertNotIn("source_time", sql)
         raw_definition = sql.split("CREATE TABLE IF NOT EXISTS vaccine_temperature_events", 1)[0]
         self.assertNotIn("vaccine_type", raw_definition)
         self.assertNotIn("scenario VARCHAR", raw_definition)

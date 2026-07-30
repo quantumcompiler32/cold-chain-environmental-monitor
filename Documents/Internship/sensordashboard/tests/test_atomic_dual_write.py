@@ -9,7 +9,6 @@ EVENT = {
     "event_id": "2f6f7c3d-5bd5-4f8c-9b8b-5bdb81f8d0c1",
     "device_id": "vaccine_temperature_simulator",
     "event_time": datetime(2026, 7, 29, 12, 0, 0, 123000, tzinfo=timezone.utc),
-    "source_time": datetime(2020, 12, 16, 11, 26, 43, tzinfo=timezone.utc),
     "sensor_name": "Pod1",
     "vaccine_type": "pfizer_ultralow",
     "scenario": "normal",

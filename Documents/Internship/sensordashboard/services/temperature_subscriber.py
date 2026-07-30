@@ -17,10 +17,12 @@ import paho.mqtt.client as mqtt
 import psycopg
 
 try:
+    from services.domain_rules import derive_operational_state, normalize_occupancy
     from services.event_contract import format_timestamp, now_utc, parse_timestamp
     from services.terminal_output import format_event_block, format_service_message
     from services.temperature_uncertainty import enrich_event
 except ImportError:  # pragma: no cover
+    from domain_rules import derive_operational_state, normalize_occupancy
     from event_contract import format_timestamp, now_utc, parse_timestamp
     from terminal_output import format_event_block, format_service_message
     from temperature_uncertainty import enrich_event
@@ -92,24 +94,25 @@ def validate_event(data: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(data)
     if "event_time" not in normalized and "timestamp" in normalized:
         normalized["event_time"] = normalized["timestamp"]
-    if "source_time" not in normalized and "source_timestamp" in normalized:
-        normalized["source_time"] = normalized["source_timestamp"]
+    # Historical CSV timestamps are not part of the live event contract.
+    # Ignore legacy aliases so old publishers cannot overwrite event timing.
+    normalized.pop("source_time", None)
+    normalized.pop("source_timestamp", None)
     missing = sorted(REQUIRED_FIELDS - normalized.keys())
     if missing:
         raise ValueError("Missing required field(s): " + ", ".join(missing))
 
     try:
         normalized["event_time"] = parse_timestamp(normalized.get("event_time"), "event_time", assume_utc=False)
-        normalized["source_time"] = (
-            None if normalized.get("source_time") in (None, "")
-            else parse_timestamp(normalized.get("source_time"), "source_time")
-        )
         normalized["temperature_c"] = float(normalized["temperature_c"])
         normalized["sensor_tolerance_c"] = float(normalized["sensor_tolerance_c"])
         normalized["temperature_min_possible_c"] = float(normalized["temperature_min_possible_c"])
         normalized["temperature_max_possible_c"] = float(normalized["temperature_max_possible_c"])
         normalized["storage_min_c"] = float(normalized["storage_min_c"])
         normalized["storage_max_c"] = float(normalized["storage_max_c"])
+        normalized["occupancy_state"] = normalize_occupancy(normalized.get("occupancy_state"))
+        normalized["cooling_enabled"] = normalized.get("cooling_enabled", True)
+        normalized["batch_id"] = normalized.get("batch_id") or None
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Invalid event value: {exc}") from exc
 
@@ -122,6 +125,10 @@ def validate_event(data: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("event_id must be a UUID") from exc
     if not isinstance(normalized["boundary_crossing"], bool):
         raise ValueError("boundary_crossing must be boolean.")
+    if not isinstance(normalized["cooling_enabled"], bool):
+        raise ValueError("cooling_enabled must be boolean.")
+    if normalized["batch_id"] is not None and not isinstance(normalized["batch_id"], str):
+        raise ValueError("batch_id must be a string or null.")
 
     expected = enrich_event(normalized, normalized["storage_min_c"], normalized["storage_max_c"])
     for field in (
@@ -134,14 +141,15 @@ def validate_event(data: dict[str, Any]) -> dict[str, Any]:
         if normalized[field] != expected[field]:
             raise ValueError(f"{field} does not match temperature_c and uncertainty.")
 
+    normalized.update(derive_operational_state(normalized))
+
     normalized["timestamp"] = normalized["event_time"]
-    normalized["source_timestamp"] = normalized["source_time"]
     return normalized
 
 
 def _json_payload(event: dict[str, Any]) -> str:
     payload = dict(event)
-    for key in ("event_time", "source_time", "timestamp", "source_timestamp"):
+    for key in ("event_time", "timestamp"):
         if isinstance(payload.get(key), datetime):
             payload[key] = format_timestamp(payload[key])
     return json.dumps(payload, sort_keys=True)
@@ -169,11 +177,12 @@ def persist_event(
     vaccine_sql = """
         INSERT INTO vaccine_temperature_events
             (event_id, device_id, sensor_name, vaccine_type, scenario, scenario_phase,
+             occupancy_state, batch_id, cooling_enabled, operational_status, severity, rule_alert,
              temperature_c, status, sensor_tolerance_c, temperature_min_possible_c,
              temperature_max_possible_c, storage_min_c, storage_max_c, uncertainty_status,
-             boundary_crossing, measurement_confidence, source_time, event_time,
+             boundary_crossing, measurement_confidence, event_time,
              received_at, stored_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (event_id) DO NOTHING
         RETURNING event_id
     """
@@ -185,11 +194,13 @@ def persist_event(
     params_vaccine = (
         normalized["event_id"], normalized["device_id"], normalized["sensor_name"],
         normalized["vaccine_type"], normalized["scenario"], normalized.get("scenario_phase"),
+        normalized["occupancy_state"], normalized["batch_id"], normalized["cooling_enabled"],
+        normalized["operational_status"], normalized["severity"], normalized["rule_alert"],
         normalized["temperature_c"], normalized["status"], normalized["sensor_tolerance_c"],
         normalized["temperature_min_possible_c"], normalized["temperature_max_possible_c"],
         normalized["storage_min_c"], normalized["storage_max_c"], normalized["uncertainty_status"],
         normalized["boundary_crossing"], normalized["measurement_confidence"],
-        normalized["source_time"], normalized["event_time"], received, stored,
+        normalized["event_time"], received, stored,
     )
 
     with connection_factory() as connection:

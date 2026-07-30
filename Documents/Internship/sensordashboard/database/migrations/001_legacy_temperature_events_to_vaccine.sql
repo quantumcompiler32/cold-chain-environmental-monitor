@@ -34,7 +34,6 @@ CREATE TABLE IF NOT EXISTS vaccine_temperature_events (
     uncertainty_status VARCHAR(40) NOT NULL,
     boundary_crossing BOOLEAN NOT NULL,
     measurement_confidence VARCHAR(180) NOT NULL,
-    source_time TIMESTAMPTZ,
     event_time TIMESTAMPTZ NOT NULL,
     received_at TIMESTAMPTZ NOT NULL,
     stored_at TIMESTAMPTZ NOT NULL
@@ -53,7 +52,6 @@ SELECT
         'event_id', md5(id::text)::uuid,
         'device_id', device_id,
         'event_time', event_timestamp,
-        'source_time', source_timestamp,
         'sensor_name', sensor_name,
         'vaccine_type', vaccine_type,
         'scenario', scenario,
@@ -72,7 +70,7 @@ INSERT INTO vaccine_temperature_events (
     status, sensor_tolerance_c, temperature_min_possible_c,
     temperature_max_possible_c, storage_min_c, storage_max_c,
     uncertainty_status, boundary_crossing, measurement_confidence,
-    source_time, event_time, received_at, stored_at
+    event_time, received_at, stored_at
 )
 SELECT
     md5(id::text)::uuid,
@@ -90,7 +88,6 @@ SELECT
     uncertainty_status,
     boundary_crossing,
     measurement_confidence,
-    source_timestamp AT TIME ZONE 'UTC',
     event_timestamp,
     received_at,
     received_at

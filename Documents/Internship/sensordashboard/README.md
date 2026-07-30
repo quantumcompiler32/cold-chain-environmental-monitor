@@ -25,8 +25,8 @@ CSV guidance → event generator → Mosquitto MQTT → listener
                                                 browser UI
 ```
 
-- The CSV is historical guidance for source variation. It is not the time of
-  the simulated event.
+- The CSV is guidance for source variation and event shape. It is not part of
+  the live event timestamp contract.
 - The generator creates a new stable `event_id` and current UTC `event_time`.
 - The listener stamps `received_at` when it ingests the MQTT message.
 - The persistence transaction stamps `stored_at` and writes both tables.
@@ -37,7 +37,6 @@ CSV guidance → event generator → Mosquitto MQTT → listener
 | Field | Meaning |
 | --- | --- |
 | `event_time` | Current UTC time when the simulated event is created |
-| `source_time` | Optional historical CSV reading time, preserved as provenance |
 | `received_at` | Current UTC time when the listener ingests the MQTT message |
 | `stored_at` | Current UTC time when PostgreSQL persistence completes |
 
@@ -84,12 +83,13 @@ Run each long-running command in its own terminal.
 ```bash
 cd /Users/mokshjoshi/Documents/Internship/sensordashboard
 source .venv/bin/activate
-make start-infrastructure
-APP_ENV=demo make reset-demo RESET_CONFIRM=YES
-make start-listener
-make run-scenario SCENARIO=normal COUNT=30 INTERVAL_MS=100 SEED=42
-make verify
-make start-dashboard
+brew services start postgresql@16
+brew services start mosquitto
+APP_ENV=demo python3 scripts/reset_demo.py --confirm-reset
+python3 -m services.temperature_subscriber --write-db --output-mode verbose
+python3 -m services.temperature_event_generator --scenario normal --count 30 --interval-ms 100 --seed 42 --output-mode summary
+python3 scripts/verify_persistence.py
+python3 -m services.dashboard_bridge
 ```
 
 Serve the browser in another terminal:
@@ -120,9 +120,9 @@ The public CLI controls are:
 ```
 
 Summary mode is the default. It reports requested, generated, published, and
-failed counts; per-phase counts; first and last event times; elapsed seconds;
-and events per second. `verbose` prints each event. `none` suppresses normal
-per-event output for large runs.
+failed counts; per-scenario counts; a separate phase breakdown for `mixed`;
+first and last event times; elapsed seconds; and events per second. `verbose`
+prints each event. `none` suppresses normal per-event output for large runs.
 
 ## Database design
 
@@ -133,7 +133,7 @@ columns.
 
 The flattened `vaccine_temperature_events` table stores vaccine-specific
 values: Pod, vaccine profile, scenario, temperature, safe range, uncertainty,
-status, provenance, and lifecycle timestamps. Its `event_id` is both its
+status, and lifecycle timestamps. Its `event_id` is both its
 primary key and a foreign key to the generic raw event.
 
 The canonical clean schema is:
@@ -153,7 +153,7 @@ host. It prints the target host and database and refuses production or remote
 hosts.
 
 ```bash
-APP_ENV=demo make reset-demo RESET_CONFIRM=YES
+APP_ENV=demo python3 scripts/reset_demo.py --confirm-reset
 ```
 
 Without both the environment guard and explicit confirmation, the command
@@ -164,7 +164,7 @@ exits before connecting to PostgreSQL.
 Run persistence verification before opening the dashboard:
 
 ```bash
-make verify
+python3 scripts/verify_persistence.py
 ```
 
 The checks show the latest event ID, device, Pod, vaccine, scenario,
@@ -177,7 +177,7 @@ total count, and first/latest timestamps. The underlying SQL is in
 ```bash
 cd /Users/mokshjoshi/Documents/Internship/sensordashboard
 source .venv/bin/activate
-make test
+python3 -m unittest discover -s tests -p 'test_*.py' -v
 node --test web/scripts/vaccine-data.test.js
 ```
 
@@ -190,10 +190,10 @@ canonical schema structure, and reset guards.
 - **PostgreSQL unavailable:** run `pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT"`, then `brew services start postgresql@16`.
 - **Mosquitto unavailable:** run `brew services start mosquitto` and verify port 1883.
 - **Listener rejects an event:** inspect the structured `event_rejected` log; the listener recalculates uncertainty fields instead of trusting the sender.
-- **No new rows:** confirm the listener uses `--write-db`, then run `make verify` before debugging the browser.
+- **No new rows:** confirm the listener uses `--write-db`, then run `python3 scripts/verify_persistence.py` before debugging the browser.
 - **Old rows appear:** reset the demo database before an isolated scenario run.
 - **Dashboard unavailable:** start `services/dashboard_bridge.py` and serve the `web/` directory separately.
-- **Timestamps look historical:** inspect `event_time`, not `source_time`; the latter intentionally preserves the CSV reading time.
+- **Timestamps look historical:** inspect `event_time`; the CSV is only used to guide event shape and temperature variation.
 
 ## Deferred work
 

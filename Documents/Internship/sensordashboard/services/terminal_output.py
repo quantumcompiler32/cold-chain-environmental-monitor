@@ -42,9 +42,6 @@ def format_event_block(
 
     scenario = _value(event.get("scenario"))
     phase = event.get("scenario_phase")
-    if phase:
-        scenario += f" / {phase}"
-
     lines = [
         title,
         f"  event_id      : {_value(event.get('event_id'))}",
@@ -52,13 +49,18 @@ def format_event_block(
         f"  pod           : {_value(event.get('sensor_name'))}",
         f"  vaccine       : {_value(event.get('vaccine_type'))}",
         f"  scenario      : {scenario}",
+        f"  phase         : {_value(phase)}",
+        f"  occupancy     : {_value(event.get('occupancy_state'))}",
+        f"  batch         : {_value(event.get('batch_id'))}",
         f"  temperature   : {_temperature(event.get('temperature_c'))}",
         f"  safe_range    : {_temperature(event.get('storage_min_c'))} to {_temperature(event.get('storage_max_c'))}",
         f"  status        : {_value(event.get('status'))}",
+        f"  pod_status    : {_value(event.get('operational_status'))}",
+        f"  severity      : {_value(event.get('severity'))}",
+        f"  alert         : {_value(event.get('rule_alert'))}",
         f"  uncertainty   : {_value(event.get('uncertainty_status'))}",
         f"  boundary      : {_value(event.get('boundary_crossing'))}",
         f"  event_time    : {_value(event.get('event_time'))}",
-        f"  source_time   : {_value(event.get('source_time'))}",
     ]
     if topic is not None:
         lines.append(f"  topic         : {topic}")

@@ -106,8 +106,6 @@
       timestamp: String(raw.event_time ?? raw.timestamp ?? raw.event_timestamp ?? raw.received_at ?? ''),
       received_at: String(raw.received_at ?? ''),
       stored_at: String(raw.stored_at ?? ''),
-      source_time: String(raw.source_time ?? raw.source_timestamp ?? ''),
-      source_timestamp: String(raw.source_time ?? raw.source_timestamp ?? ''),
       ingestion_latency_ms: raw.ingestion_latency_ms == null ? null : Number(raw.ingestion_latency_ms),
       event_age_seconds: raw.event_age_seconds == null ? null : Number(raw.event_age_seconds),
       sensor_name: String(raw.sensor_name ?? raw.sensor ?? 'Unknown'),
@@ -115,10 +113,24 @@
       vaccine_label: eventProfile.label,
       scenario: String(raw.scenario ?? 'normal'),
       scenario_phase: String(raw.scenario_phase ?? ''),
+      occupancy_state: String(raw.occupancy_state ?? 'loaded'),
+      batch_id: String(raw.batch_id ?? ''),
+      cooling_enabled: raw.cooling_enabled !== false,
+      operational_status: String(raw.operational_status ?? operationalStatusFromObserved(raw.status, raw.occupancy_state)),
+      severity: String(raw.severity ?? 'info'),
+      rule_alert: String(raw.rule_alert ?? ''),
       temperature_c: temperature,
       status: String(raw.status || classifyTemperature(temperature, eventProfile)),
       ...uncertaintyFields(temperature, eventProfile, raw.sensor_tolerance_c ?? SENSOR_TOLERANCE_C),
     };
+  }
+
+  function operationalStatusFromObserved(status, occupancy = 'loaded') {
+    if (String(occupancy).toLowerCase() === 'offline') return 'OFFLINE';
+    if (String(occupancy).toLowerCase() === 'empty') return 'EMPTY';
+    if (status === 'SENSOR_FAULT') return 'SENSOR_FAULT';
+    if (status === 'TOO_COLD' || status === 'TOO_WARM') return 'CRITICAL';
+    return 'NORMAL';
   }
 
   function parseDateTime(dateText, timeText) {
@@ -155,7 +167,6 @@
         events.push(normalizeEvent({
           device_id: 'vaccine_temperature_dataset',
           timestamp,
-          source_timestamp: timestamp,
           sensor_name: header,
           vaccine_type: PROFILE.id,
           scenario: 'normal',
@@ -240,6 +251,13 @@
         latestTemperatureC: latest.temperature_c,
         latestTimestamp: latest.timestamp,
         latestScenario: latest.scenario,
+        latestPhase: latest.scenario_phase,
+        latestOperationalStatus: latest.operational_status,
+        latestSeverity: latest.severity,
+        latestRuleAlert: latest.rule_alert,
+        latestOccupancy: latest.occupancy_state,
+        latestBatchId: latest.batch_id,
+        latestEventTime: latest.event_time,
         status: latest.status,
         averageTemperatureC: temperatures.reduce((sum, value) => sum + value, 0) / temperatures.length,
         minimumTemperatureC: Math.min(...temperatures),
@@ -293,6 +311,18 @@
 
   function statusLabel(status) {
     return { STABLE: 'In range', ACCEPTABLE: 'In range', TOO_COLD: 'Too cold', TOO_WARM: 'Too warm', UNKNOWN: 'Unknown' }[status] || status || 'Unknown';
+  }
+
+  function operationalStatusLabel(status) {
+    return {
+      NORMAL: 'Normal',
+      WARNING: 'Warning',
+      CRITICAL: 'Critical',
+      SENSOR_FAULT: 'Sensor fault',
+      EMPTY: 'Empty',
+      ENERGY_WASTE: 'Energy waste',
+      OFFLINE: 'Offline',
+    }[status] || status || 'Unknown';
   }
 
   function summarize(events) {
@@ -360,16 +390,8 @@
     return Array.from(buckets.entries()).map(([label, value]) => ({ label, ...value }));
   }
 
-  function buildReplayOffsetSeries(events) {
-    return sortedEvents(events).slice(-30).map((event) => {
-      const eventTime = timestampValue(event.timestamp);
-      const sourceTime = timestampValue(event.source_timestamp);
-      return { label: event.timestamp, hours: sourceTime && eventTime ? (eventTime - sourceTime) / 3600000 : null };
-    });
-  }
-
   function toCsv(events) {
-    const headers = ['device_id', 'timestamp', 'source_timestamp', 'sensor_name', 'vaccine_type', 'scenario', 'temperature_c', 'status', 'sensor_tolerance_c', 'temperature_min_possible_c', 'temperature_max_possible_c', 'storage_min_c', 'storage_max_c', 'uncertainty_status', 'boundary_crossing', 'measurement_confidence'];
+    const headers = ['event_id', 'device_id', 'event_time', 'received_at', 'stored_at', 'sensor_name', 'vaccine_type', 'scenario', 'scenario_phase', 'occupancy_state', 'batch_id', 'cooling_enabled', 'operational_status', 'severity', 'rule_alert', 'temperature_c', 'status', 'sensor_tolerance_c', 'temperature_min_possible_c', 'temperature_max_possible_c', 'storage_min_c', 'storage_max_c', 'uncertainty_status', 'boundary_crossing', 'measurement_confidence'];
     const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
     return [headers.join(','), ...events.map((event) => headers.map((header) => quote(event[header])).join(','))].join('\n');
   }
@@ -393,11 +415,11 @@
     buildSensorSpreadSeries,
     buildUncertaintySeries,
     buildExcursionSeries,
-    buildReplayOffsetSeries,
     limitEvents,
     getChartHeight,
     toCsv,
     statusLabel,
+    operationalStatusLabel,
     summarize,
   };
 });

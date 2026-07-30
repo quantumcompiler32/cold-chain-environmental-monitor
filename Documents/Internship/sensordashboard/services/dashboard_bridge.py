@@ -28,7 +28,13 @@ from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 from urllib.parse import urlparse
+from urllib.parse import parse_qs
 from uuid import UUID
+
+try:
+    from services.event_contract import parse_timestamp
+except ImportError:  # pragma: no cover
+    from event_contract import parse_timestamp
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -43,6 +49,12 @@ EVENT_COLUMNS = (
     "vaccine_type",
     "scenario",
     "scenario_phase",
+    "occupancy_state",
+    "batch_id",
+    "cooling_enabled",
+    "operational_status",
+    "severity",
+    "rule_alert",
     "temperature_c",
     "status",
     "sensor_tolerance_c",
@@ -53,7 +65,6 @@ EVENT_COLUMNS = (
     "uncertainty_status",
     "boundary_crossing",
     "measurement_confidence",
-    "source_time",
     "event_time",
     "received_at",
     "stored_at",
@@ -68,6 +79,12 @@ CSV_COLUMNS = (
     "vaccine_type",
     "scenario",
     "scenario_phase",
+    "occupancy_state",
+    "batch_id",
+    "cooling_enabled",
+    "operational_status",
+    "severity",
+    "rule_alert",
     "temperature_c",
     "status",
     "sensor_tolerance_c",
@@ -79,17 +96,17 @@ CSV_COLUMNS = (
     "boundary_crossing",
     "measurement_confidence",
     "event_time",
-    "source_time",
     "received_at",
     "stored_at",
 )
 
 EVENT_SELECT = """
 SELECT event_id, device_id, sensor_name, vaccine_type, scenario, scenario_phase,
+       occupancy_state, batch_id, cooling_enabled, operational_status, severity, rule_alert,
        temperature_c, status, sensor_tolerance_c, temperature_min_possible_c,
        temperature_max_possible_c, storage_min_c, storage_max_c,
        uncertainty_status, boundary_crossing, measurement_confidence,
-       source_time, event_time, received_at, stored_at,
+       event_time, received_at, stored_at,
        EXTRACT(EPOCH FROM (received_at - event_time)) * 1000 AS ingestion_latency_ms,
        EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - event_time)) AS event_age_seconds
 FROM vaccine_temperature_events
@@ -107,6 +124,10 @@ LIMIT 100
 
 class DatabaseUnavailable(RuntimeError):
     """Raised when the dashboard cannot read PostgreSQL."""
+
+
+class InvalidFilter(ValueError):
+    """Raised when a dashboard filter is malformed."""
 
 
 def postgres_settings() -> dict[str, Any]:
@@ -163,7 +184,7 @@ class DatabaseReader:
         except Exception as exc:
             raise DatabaseUnavailable(str(exc)) from exc
 
-    def _rows(self, query: str) -> list[dict[str, Any]]:
+    def _rows(self, query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
         # Use a fresh connection for each request, then close it automatically.
         try:
             with self._connect() as connection:
@@ -173,7 +194,7 @@ class DatabaseReader:
                     # Make PostgreSQL enforce that this request cannot write.
                     cursor.execute("SET TRANSACTION READ ONLY")
                     cursor.execute("SET TIME ZONE 'UTC'")
-                    cursor.execute(query)
+                    cursor.execute(query, params) if params else cursor.execute(query)
                     rows = cursor.fetchall()
                     columns = []
                     for column in cursor.description:
@@ -205,6 +226,12 @@ class DatabaseReader:
                 "vaccine_type": row["vaccine_type"],
                 "scenario": row["scenario"],
                 "scenario_phase": row["scenario_phase"] or "",
+                "occupancy_state": row["occupancy_state"] or "loaded",
+                "batch_id": row["batch_id"] or "",
+                "cooling_enabled": row["cooling_enabled"],
+                "operational_status": row["operational_status"] or "NORMAL",
+                "severity": row["severity"] or "info",
+                "rule_alert": row["rule_alert"] or "",
                 "temperature_c": row["temperature_c"],
                 "status": row["status"],
                 "sensor_tolerance_c": row["sensor_tolerance_c"],
@@ -216,7 +243,6 @@ class DatabaseReader:
                 "boundary_crossing": row["boundary_crossing"],
                 "measurement_confidence": row["measurement_confidence"],
                 "event_time": row["event_time"],
-                "source_time": row["source_time"] or "",
                 "received_at": row["received_at"],
                 "stored_at": row["stored_at"],
                 "ingestion_latency_ms": row["ingestion_latency_ms"],
@@ -225,27 +251,82 @@ class DatabaseReader:
             # Keep the current frontend contract stable while it migrates to
             # the explicit timestamp names.
             event["timestamp"] = event["event_time"]
-            event["source_timestamp"] = event["source_time"]
             events.append(event)
         return events
 
-    def fetch_events(self) -> list[dict[str, Any]]:
-        """Return every stored event in chronological dashboard order."""
-        return self._map_events(self._rows(EVENT_QUERY))
+    def fetch_events(
+        self,
+        filters: dict[str, str] | None = None,
+        *,
+        latest_first: bool = False,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return filtered events in a deterministic order."""
+        where_sql, params = build_filter_sql(filters or {})
+        order_sql = "ORDER BY event_time DESC, event_id DESC" if latest_first else "ORDER BY event_time ASC, event_id ASC"
+        limit_sql = f"LIMIT {int(limit)}" if limit is not None else ""
+        query = EVENT_SELECT + where_sql + "\n" + order_sql + "\n" + limit_sql
+        return self._map_events(self._rows(query, params))
 
-    def fetch_latest_events(self) -> list[dict[str, Any]]:
+    def fetch_latest_events(self, filters: dict[str, str] | None = None) -> list[dict[str, Any]]:
         """Return the bounded newest-event verification view."""
-        return self._map_events(self._rows(LATEST_EVENT_QUERY))
+        return self.fetch_events(filters, latest_first=True, limit=100)
 
-    def export_csv(self) -> str:
+    def export_csv(self, filters: dict[str, str] | None = None) -> str:
         """Export every stored event, not the browser's filtered view."""
         # Make a blank in-memory document, then write the header and rows into it.
         output = io.StringIO(newline="")
         writer = csv.writer(output, lineterminator="\n")
         writer.writerow(CSV_COLUMNS)
-        for event in self.fetch_events():
+        for event in self.fetch_events(filters):
             writer.writerow([event.get(column, "") for column in CSV_COLUMNS])
         return output.getvalue()
+
+
+FILTER_COLUMNS = {
+    "pod": "sensor_name",
+    "vaccine": "vaccine_type",
+    "batch": "batch_id",
+    "scenario": "scenario",
+    "severity": "severity",
+    "occupancy": "occupancy_state",
+}
+
+
+def build_filter_sql(filters: dict[str, str]) -> tuple[str, tuple[Any, ...]]:
+    """Turn validated HTTP filters into SQL predicates and parameters."""
+    clauses: list[str] = []
+    params: list[Any] = []
+    for query_name, column in FILTER_COLUMNS.items():
+        value = filters.get(query_name)
+        if value:
+            clauses.append(f"{column} = %s")
+            params.append(value)
+    for query_name, operator in (("start", ">="), ("end", "<=")):
+        value = filters.get(query_name)
+        if value:
+            try:
+                params.append(parse_timestamp(value, query_name, assume_utc=False))
+            except ValueError as exc:
+                raise InvalidFilter(str(exc)) from exc
+            clauses.append(f"event_time {operator} %s")
+    return ("WHERE " + " AND ".join(clauses)) if clauses else "", tuple(params)
+
+
+def request_filters(path: str) -> dict[str, str]:
+    """Extract the supported filters from a request URL."""
+    query = parse_qs(urlparse(path).query)
+    supported = set(FILTER_COLUMNS) | {"start", "end"}
+    return {key: values[0] for key, values in query.items() if key in supported and values and values[0]}
+
+
+def response_scope(filters: dict[str, str], events: list[dict[str, Any]]) -> dict[str, Any]:
+    times = [event["event_time"] for event in events if event.get("event_time")]
+    return {
+        "filters": filters,
+        "effective_start": filters.get("start") or (min(times) if times else None),
+        "effective_end": filters.get("end") or (max(times) if times else None),
+    }
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -287,6 +368,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         # GET means the browser is asking to read something.
         path = urlparse(self.path).path
+        try:
+            filters = request_filters(self.path)
+        except InvalidFilter as exc:
+            self._json(400, {"error": str(exc), "database_connected": True})
+            return
         if path == "/health":
             try:
                 self.reader.check()
@@ -294,22 +380,47 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except DatabaseUnavailable as exc:
                 self._json(200, {"ok": True, "database_connected": False, "read_only": True, "error": str(exc)})
             return
-        if path in {"/api/events", "/api/verification/latest-events"}:
+        if path in {"/api/events", "/api/live", "/api/verification/latest-events"}:
             try:
                 latest = path == "/api/verification/latest-events"
-                events = self.reader.fetch_latest_events() if latest else self.reader.fetch_events()
+                live = path == "/api/live"
+                events = self.reader.fetch_latest_events(filters) if latest else self.reader.fetch_events(filters, latest_first=live, limit=200 if live else None)
                 self._json(200, {
                     "events": events,
                     "count": len(events),
                     "source": "postgresql",
-                    "latest_first": latest,
+                    "latest_first": latest or live,
+                    "live_monitoring": live,
+                    "scope": response_scope(filters, events),
+                })
+            except DatabaseUnavailable as exc:
+                self._json(503, {"error": str(exc), "database_connected": False})
+            return
+        if path == "/api/analytics":
+            try:
+                events = self.reader.fetch_events(filters)
+                status_counts: dict[str, int] = {}
+                scenario_counts: dict[str, int] = {}
+                severity_counts: dict[str, int] = {}
+                for event in events:
+                    status_counts[event["operational_status"]] = status_counts.get(event["operational_status"], 0) + 1
+                    scenario_counts[event["scenario"]] = scenario_counts.get(event["scenario"], 0) + 1
+                    severity_counts[event["severity"]] = severity_counts.get(event["severity"], 0) + 1
+                self._json(200, {
+                    "count": len(events),
+                    "status_counts": status_counts,
+                    "scenario_counts": scenario_counts,
+                    "severity_counts": severity_counts,
+                    "source": "postgresql",
+                    "live_monitoring": False,
+                    "scope": response_scope(filters, events),
                 })
             except DatabaseUnavailable as exc:
                 self._json(503, {"error": str(exc), "database_connected": False})
             return
         if path == "/api/events/export.csv":
             try:
-                self._csv(self.reader.export_csv())
+                self._csv(self.reader.export_csv(filters))
             except DatabaseUnavailable as exc:
                 self._json(503, {"error": str(exc), "database_connected": False})
             return

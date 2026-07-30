@@ -46,6 +46,12 @@ def database_row(**overrides):
         "vaccine_type": "pfizer_ultralow",
         "scenario": "normal",
         "scenario_phase": None,
+        "occupancy_state": "loaded",
+        "batch_id": "Pod1-DEMO-BATCH",
+        "cooling_enabled": True,
+        "operational_status": "NORMAL",
+        "severity": "info",
+        "rule_alert": None,
         "temperature_c": -78.5,
         "status": "STABLE",
         "sensor_tolerance_c": 0.5,
@@ -56,7 +62,6 @@ def database_row(**overrides):
         "uncertainty_status": "WITHIN_RANGE",
         "boundary_crossing": False,
         "measurement_confidence": "Approximately +/-0.5 C Type-T thermocouple accuracy",
-        "source_time": datetime(2020, 12, 16, 11, 25, 54, tzinfo=timezone.utc),
         "event_time": datetime(2026, 7, 29, 12, 0, 0, 123000, tzinfo=timezone.utc),
         "received_at": datetime(2026, 7, 29, 12, 0, 1, 456000, tzinfo=timezone.utc),
         "stored_at": datetime(2026, 7, 29, 12, 0, 1, 789000, tzinfo=timezone.utc),
@@ -76,7 +81,8 @@ class DashboardBridgeTests(unittest.TestCase):
 
         self.assertEqual(result[0]["event_id"], "2f6f7c3d-5bd5-4f8c-9b8b-5bdb81f8d0c1")
         self.assertEqual(result[0]["timestamp"], "2026-07-29T12:00:00.123000+00:00")
-        self.assertEqual(result[0]["source_timestamp"], "2020-12-16T11:25:54+00:00")
+        self.assertNotIn("source_time", result[0])
+        self.assertNotIn("source_timestamp", result[0])
         self.assertEqual(result[0]["ingestion_latency_ms"], 1333.0)
         statements = [statement for statement, _ in connection.cursor_instance.statements]
         self.assertIn("SET TRANSACTION READ ONLY", statements[0])
@@ -90,6 +96,8 @@ class DashboardBridgeTests(unittest.TestCase):
         lines = reader.export_csv().splitlines()
 
         self.assertEqual(lines[0].split(",")[:4], ["event_id", "device_id", "sensor_name", "vaccine_type"])
+        self.assertIn("occupancy_state", lines[0].split(","))
+        self.assertIn("operational_status", lines[0].split(","))
         self.assertEqual(len(lines), 2)
         self.assertIn("Pod1", lines[1])
 
@@ -103,6 +111,18 @@ class DashboardBridgeTests(unittest.TestCase):
         query = statements[-1]
         self.assertIn("ORDER BY event_time DESC, event_id DESC", query)
         self.assertIn("LIMIT 100", query)
+
+    def test_filters_are_parameterized_and_include_scope(self):
+        connection = FakeConnection([database_row()])
+        reader = bridge.DatabaseReader(connect_factory=lambda **_: connection, settings={})
+
+        result = reader.fetch_events({"pod": "Pod1", "scenario": "normal"})
+
+        query, params = connection.cursor_instance.statements[-1]
+        self.assertIn("sensor_name = %s", query)
+        self.assertIn("scenario = %s", query)
+        self.assertEqual(params, ("Pod1", "normal"))
+        self.assertEqual(result[0]["operational_status"], "NORMAL")
 
 
 if __name__ == "__main__":

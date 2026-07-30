@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fire Weather Monitoring</title>
+<link rel="stylesheet" href="../styles/shared.css">
+<style>
+  :root { --accent: #ef4444; --accent-a: rgba(239,68,68,0.1); }
+  .fwi-scale {
+    display: flex; gap: 0; border-radius: 6px; overflow: hidden;
+    height: 20px; margin-bottom: 12px; font-size: 10px; font-weight: 600;
+  }
+  .fwi-seg {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    color: rgba(0,0,0,0.7);
+  }
+</style>
+</head>
+<body>
+
+<div class="tabs-bar">
+  <div class="tab active" onclick="switchTab('analytics',this)">📊 Analytics</div>
+  <div class="tab" onclick="switchTab('raw',this)">🖥 Raw Data Stream</div>
+</div>
+
+<!-- ANALYTICS -->
+<div id="panel-analytics" class="tab-panel active">
+  <div class="content-scroll">
+
+    <div class="kpi-row">
+      <div class="kpi-card" style="--kpi-color:#ef4444">
+        <div class="kpi-label">Max Wind Speed</div>
+        <div class="kpi-value">67<span class="kpi-unit">km/h</span></div>
+        <div class="kpi-delta down">▲ Critical — gusts to 80 km/h</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#f59e0b">
+        <div class="kpi-label">Min Relative Humidity</div>
+        <div class="kpi-value">8<span class="kpi-unit">%</span></div>
+        <div class="kpi-delta down">▼ Below 15% danger threshold</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#f97316">
+        <div class="kpi-label">Fire Weather Index</div>
+        <div class="kpi-value">38.2</div>
+        <div class="kpi-delta down">▲ EXTREME — Red Flag Warning</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#6b7280">
+        <div class="kpi-label">Avg Soil Moisture</div>
+        <div class="kpi-value">4.1<span class="kpi-unit">%</span></div>
+        <div class="kpi-delta down">▼ Critically dry conditions</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Fire Weather Index — 48 h actual vs. forecast</div>
+        <div class="card-sub">Scale: Low 0–11 · Moderate 12–21 · High 22–32 · Extreme 33+</div>
+        <div class="fwi-scale">
+          <div class="fwi-seg" style="background:#16a34a">Low</div>
+          <div class="fwi-seg" style="background:#f59e0b">Mod</div>
+          <div class="fwi-seg" style="background:#f97316">High</div>
+          <div class="fwi-seg" style="background:#ef4444">Extreme</div>
+        </div>
+        <div class="mini-legend">
+          <div class="legend-item"><div class="legend-swatch" style="background:#ef4444"></div>Actual FWI</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:#f59e0b;opacity:0.7"></div>Forecast FWI</div>
+        </div>
+        <div class="chart-wrap tall"><canvas id="fwiChart" role="img" aria-label="FWI actual vs forecast 48h"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Station network — current FWI</div>
+        <div class="card-sub">24 stations · color = FWI category</div>
+        <div class="mini-legend">
+          <div class="legend-item"><div class="legend-swatch" style="background:#16a34a"></div>Low</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:#f59e0b"></div>Moderate</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:#f97316"></div>High</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:#ef4444"></div>Extreme</div>
+        </div>
+        <div class="sensor-grid" id="stationGrid"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:10px">Hover station for FWI reading</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Wind speed &amp; relative humidity — 24 h</div>
+        <div class="card-sub">Wind (left axis) · Humidity (right axis)</div>
+        <div class="mini-legend">
+          <div class="legend-item"><div class="legend-swatch" style="background:#ef4444"></div>Wind km/h</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:#3b82f6"></div>Humidity %</div>
+        </div>
+        <div class="chart-wrap"><canvas id="windHumChart" role="img" aria-label="Wind and humidity 24h"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Temperature vs. dew point — 24 h</div>
+        <div class="card-sub">Narrow spread = high fire potential</div>
+        <div class="mini-legend">
+          <div class="legend-item"><div class="legend-swatch" style="background:#f97316"></div>Temp °C</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:#8b5cf6"></div>Dew point °C</div>
+        </div>
+        <div class="chart-wrap"><canvas id="tempDewChart" role="img" aria-label="Temperature vs dew point 24h"></canvas></div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Active red flag alerts</div>
+        <div class="card-sub">Last 2 hours · 5 open incidents</div>
+        <div class="alert-feed">
+          <div class="alert-item alert-crit"><div class="alert-dot"></div><div><div class="alert-msg">Station NW-12: FWI = 41 — RED FLAG WARNING issued to authorities</div><div class="alert-time">Now · FW-NW-12-FWI</div></div></div>
+          <div class="alert-item alert-crit"><div class="alert-dot"></div><div><div class="alert-msg">Wind gusts 80 km/h at ridgeline sensor NE-08</div><div class="alert-time">4 min ago · FW-NE-08-WIND</div></div></div>
+          <div class="alert-item alert-crit"><div class="alert-dot"></div><div><div class="alert-msg">Station SW-03: humidity dropped to 6% — extreme dryness</div><div class="alert-time">11 min ago · FW-SW-03-HUM</div></div></div>
+          <div class="alert-item alert-warn"><div class="alert-dot"></div><div><div class="alert-msg">5 stations simultaneously below 10% humidity threshold</div><div class="alert-time">22 min ago · Cluster alert</div></div></div>
+          <div class="alert-item alert-warn"><div class="alert-dot"></div><div><div class="alert-msg">Soil moisture at NW cluster fell below 5% — dry fuels</div><div class="alert-time">58 min ago · FW-NW-SOIL</div></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">24 h precipitation by station</div>
+        <div class="card-sub">mm accumulated · all near-zero today</div>
+        <div class="chart-wrap"><canvas id="precipChart" role="img" aria-label="24h precipitation by station"></canvas></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- RAW DATA -->
+<div id="panel-raw" class="tab-panel">
+  <div class="raw-wrap">
+    <div class="raw-toolbar">
+      <span class="raw-badge">LIVE</span>
+      <span class="raw-label">Station:</span>
+      <select class="raw-filter" id="sensorFilter">
+        <option value="all">ALL STATIONS</option>
+        <option value="nw">NW CLUSTER</option>
+        <option value="ne">NE CLUSTER</option>
+        <option value="se">SE CLUSTER</option>
+        <option value="sw">SW CLUSTER</option>
+      </select>
+      <span class="raw-label" style="margin-left:auto">Rows: <span id="rowCount" style="color:#4ade80">0</span></span>
+      <span class="raw-label">Latency: <span id="latency" style="color:#4ade80">--</span>ms</span>
+    </div>
+    <div class="raw-stream" id="rawStream"></div>
+    <div class="raw-footer">
+      <div class="raw-stat">INGESTED <span id="stat-in">0</span></div>
+      <div class="raw-stat">ERRORS <span id="stat-err" style="color:#f87171">0</span></div>
+      <div class="raw-stat">WRITES/MIN <span id="stat-wpm">0</span></div>
+      <div class="raw-stat">UPTIME <span id="stat-up">00:00:00</span></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+function switchTab(name,el){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('panel-'+name).classList.add('active');
+}
+
+const rand=(mn,mx,n)=>Array.from({length:n},()=>+(Math.random()*(mx-mn)+mn).toFixed(2));
+const h24=Array.from({length:25},(_,i)=>((new Date().getHours()-24+i+24)%24)+':00');
+const co={responsive:true,maintainAspectRatio:false,
+  plugins:{legend:{display:false},tooltip:{backgroundColor:'#1a1e28',borderColor:'#2a2e3a',borderWidth:1,titleColor:'#e8eaf0',bodyColor:'#9ca3af'}},
+  scales:{x:{ticks:{color:'#6b7280',font:{size:10}},grid:{color:'rgba(255,255,255,0.04)'},border:{color:'rgba(255,255,255,0.07)'}},
+          y:{ticks:{color:'#6b7280',font:{size:10}},grid:{color:'rgba(255,255,255,0.04)'},border:{color:'rgba(255,255,255,0.07)'}}}};
+
+// FWI chart
+const fwiActual=rand(18,40,20).concat(Array(5).fill(null));
+const fwiForecast=Array(18).fill(null).concat(rand(36,44,7));
+const fwiLabels=Array.from({length:25},(_,i)=>{const h=(new Date().getHours()-24+i*2+48)%24;return h+':00';});
+new Chart(document.getElementById('fwiChart'),{type:'line',data:{labels:fwiLabels,datasets:[
+  {data:fwiActual,borderColor:'#ef4444',backgroundColor:'rgba(239,68,68,0.1)',borderWidth:2,pointRadius:0,fill:true,tension:0.35},
+  {data:fwiForecast,borderColor:'#f59e0b',borderDash:[5,4],backgroundColor:'rgba(245,158,11,0.06)',borderWidth:2,pointRadius:0,fill:true,tension:0.35},
+]},options:{...co,scales:{...co.scales,y:{...co.scales.y,min:0,max:50,ticks:{color:'#6b7280',font:{size:10},callback:v=>v+' FWI'}}}}});
+
+// Wind/humidity
+new Chart(document.getElementById('windHumChart'),{type:'line',data:{labels:h24,datasets:[
+  {data:rand(30,72,25),borderColor:'#ef4444',borderWidth:2,pointRadius:0,tension:0.4,yAxisID:'y'},
+  {data:rand(6,20,25),borderColor:'#3b82f6',borderWidth:2,pointRadius:0,tension:0.4,yAxisID:'y1'},
+]},options:{...co,scales:{x:co.scales.x,
+  y:{...co.scales.y,position:'left',title:{display:true,text:'km/h',color:'#6b7280',font:{size:10}}},
+  y1:{...co.scales.y,position:'right',title:{display:true,text:'%',color:'#6b7280',font:{size:10}},grid:{display:false}}}}});
+
+// Temp/dew
+new Chart(document.getElementById('tempDewChart'),{type:'line',data:{labels:h24,datasets:[
+  {data:rand(28,42,25),borderColor:'#f97316',backgroundColor:'rgba(249,115,22,0.07)',borderWidth:2,pointRadius:0,fill:false,tension:0.4},
+  {data:rand(0,8,25),borderColor:'#8b5cf6',borderWidth:1.5,pointRadius:0,fill:false,tension:0.4},
+]},options:{...co,scales:{...co.scales,y:{...co.scales.y,min:-5,max:50,ticks:{color:'#6b7280',font:{size:10},callback:v=>v+'°C'}}}}});
+
+// Precip
+new Chart(document.getElementById('precipChart'),{type:'bar',data:{labels:Array.from({length:12},(_,i)=>'S'+(i+1)),datasets:[
+  {data:rand(0,0.3,12),backgroundColor:'rgba(59,130,246,0.6)',borderRadius:4}
+]},options:{...co,scales:{...co.scales,y:{...co.scales.y,min:0,max:2,ticks:{color:'#6b7280',font:{size:10},callback:v=>v+' mm'}}}}});
+
+// Station grid
+(function(){
+  const g=document.getElementById('stationGrid');
+  for(let i=0;i<24;i++){
+    const fwi=10+Math.random()*35;
+    const col=fwi<12?'#16a34a':fwi<22?'#f59e0b':fwi<32?'#f97316':'#ef4444';
+    const n=document.createElement('div');
+    n.className='sensor-node';
+    n.style.background=col;
+    n.title=`Station ${i+1}: FWI ${fwi.toFixed(1)}`;
+    n.textContent=fwi.toFixed(0);
+    g.appendChild(n);
+  }
+})();
+
+// Raw stream
+const stations=['FW-NW-12','FW-NW-09','FW-NE-08','FW-NE-14','FW-SE-04','FW-SW-03','FW-SW-07'];
+const defs=[
+  {keys:['wind_kmh','gust_kmh','humidity_pct','temp_c','fwi'],ranges:[[20,60],[30,82],[5,25],[28,42],[15,45]]},
+  {keys:['humidity_pct','soil_moisture_pct','precip_mm'],ranges:[[6,18],[2,8],[0,0.5]]},
+  {keys:['wind_kmh','gust_kmh','fwi'],ranges:[[15,68],[25,80],[12,42]]},
+];
+let ingested=0,rowCount=0,startMs=Date.now();
+const stream=document.getElementById('rawStream');
+function appendRow(){
+  const sid=stations[Math.floor(Math.random()*stations.length)];
+  const def=defs[Math.floor(Math.random()*defs.length)];
+  const ts=new Date().toISOString().replace('T',' ').slice(0,23);
+  let f='';
+  def.keys.forEach((k,i)=>{
+    const v=+(Math.random()*(def.ranges[i][1]-def.ranges[i][0])+def.ranges[i][0]).toFixed(3);
+    const isCrit=(k==='fwi'&&v>33)||(k==='humidity_pct'&&v<10);
+    const isWarn=(k==='fwi'&&v>22)||(k==='humidity_pct'&&v<15)||(k==='gust_kmh'&&v>60);
+    f+=` <span class="key">${k}</span><span class="sep">=</span><span class="${isCrit?'crit':isWarn?'warn':'val'}">${v}</span>`;
+  });
+  const div=document.createElement('div');
+  div.className='raw-row';
+  div.innerHTML=`<span class="ts">[${ts}]</span> <span class="sep">SEQ#${String(++ingested).padStart(7,'0')}</span> <span class="sid">${sid}</span>${f}`;
+  stream.appendChild(div);
+  while(stream.children.length>150) stream.removeChild(stream.firstChild);
+  stream.scrollTop=stream.scrollHeight;
+  rowCount++;
+  document.getElementById('stat-in').textContent=ingested.toLocaleString();
+  document.getElementById('rowCount').textContent=rowCount;
+  document.getElementById('latency').textContent=10+Math.floor(Math.random()*20);
+  const mins=(Date.now()-startMs)/60000||0.01;
+  document.getElementById('stat-wpm').textContent=Math.floor(ingested/mins);
+  const el=Date.now()-startMs;const s2=Math.floor(el/1000)%60;const m=Math.floor(el/60000)%60;const h=Math.floor(el/3600000);
+  document.getElementById('stat-up').textContent=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s2).padStart(2,'0');
+}
+setInterval(appendRow,500);
+const cur=document.createElement('div');cur.className='raw-row';cur.innerHTML='<span class="raw-cursor"></span>';stream.appendChild(cur);
+</script>
+</body>
+</html>

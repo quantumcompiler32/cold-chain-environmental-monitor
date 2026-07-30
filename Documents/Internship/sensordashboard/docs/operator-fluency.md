@@ -1,13 +1,10 @@
-# Operator fluency guide
-
 This guide is for explaining the project in a meeting. The goal is to be able
 to trace one event through every boundary and explain what each timestamp,
 table, query, API response, and dashboard state means.
 
 ## The one-event explanation
 
-1. The generator reads a historical CSV row only for temperature shape and
-   optional `source_time` provenance.
+1. The generator reads a CSV row only for temperature shape and event guidance.
 2. It creates a new UUID `event_id`, current UTC `event_time`, Pod, vaccine,
    scenario, temperature, status, and uncertainty fields.
 3. It serializes the event and publishes it to Mosquitto on
@@ -36,9 +33,9 @@ vaccine event so queries and dashboard filters do not repeatedly unpack JSON.
 
 ### Why is `event_time` not the CSV time?
 
-The CSV is historical guidance. A simulated event represents something created
-now, so `event_time` is current UTC. The original reading time is optional
-`source_time` provenance and must not be used to decide whether the event is
+The CSV is guidance for the simulator. A simulated event represents something
+created now, so `event_time` is current UTC. The CSV timestamp is not included
+in the live event contract and cannot be used to decide whether the event is
 fresh.
 
 ### Why do `received_at` and `stored_at` differ?
@@ -99,7 +96,7 @@ For each scenario, say what you expect before running it:
 2. Start Mosquitto and PostgreSQL.
 3. Start the listener with --write-db.
 4. Run one named generator scenario with --count, --seed, and --output-mode summary.
-5. Run make verify and point out current event_time values and ingestion latency.
+5. Run `python3 scripts/verify_persistence.py` and point out current event_time values and ingestion latency.
 6. Open the dashboard and explain how the API response becomes the displayed state.
 7. Repeat for the next isolated scenario.
 ```
@@ -107,17 +104,17 @@ For each scenario, say what you expect before running it:
 Recommended runs:
 
 ```bash
-make reset-demo RESET_CONFIRM=YES APP_ENV=demo
-make run-scenario SCENARIO=normal COUNT=30 SEED=42
-make verify
+APP_ENV=demo python3 scripts/reset_demo.py --confirm-reset
+python3 -m services.temperature_event_generator --scenario normal --count 30 --seed 42 --output-mode summary
+python3 scripts/verify_persistence.py
 
-make reset-demo RESET_CONFIRM=YES APP_ENV=demo
-make run-scenario SCENARIO=recovery COUNT=30 SEED=42
-make verify
+APP_ENV=demo python3 scripts/reset_demo.py --confirm-reset
+python3 -m services.temperature_event_generator --scenario recovery --count 30 --seed 42 --output-mode summary
+python3 scripts/verify_persistence.py
 
-make reset-demo RESET_CONFIRM=YES APP_ENV=demo
-make run-scenario SCENARIO=mixed COUNT=30 SEED=42
-make verify
+APP_ENV=demo python3 scripts/reset_demo.py --confirm-reset
+python3 -m services.temperature_event_generator --scenario mixed --count 30 --seed 42 --output-mode summary
+python3 scripts/verify_persistence.py
 ```
 
 ML is not part of this rehearsal. The important story is current event

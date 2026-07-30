@@ -14,7 +14,7 @@ from services.temperature_event_generator import (
 class GeneratorScenarioTests(unittest.TestCase):
     def setUp(self):
         self.profile = resolve_profile("pfizer_ultralow")
-        self.row = {"source_timestamp": datetime(2020, 12, 16, 11, 26, 43), "temperature_c": -78.5}
+        self.row = {"temperature_c": -78.5}
         self.event_time = datetime(2026, 7, 29, 12, 0, 0, 123456, tzinfo=timezone.utc)
 
     def test_normal_stays_inside_profile(self):

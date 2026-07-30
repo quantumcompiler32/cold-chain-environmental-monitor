@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS vaccine_temperature_events (
     vaccine_type VARCHAR(80) NOT NULL,
     scenario VARCHAR(30) NOT NULL,
     scenario_phase VARCHAR(30),
+    occupancy_state VARCHAR(20) NOT NULL DEFAULT 'loaded',
+    batch_id VARCHAR(120),
+    cooling_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    operational_status VARCHAR(30) NOT NULL DEFAULT 'NORMAL',
+    severity VARCHAR(20) NOT NULL DEFAULT 'info',
+    rule_alert VARCHAR(80),
     temperature_c NUMERIC(8, 3) NOT NULL,
     status VARCHAR(30) NOT NULL,
     sensor_tolerance_c NUMERIC(8, 3) NOT NULL,
@@ -36,7 +42,6 @@ CREATE TABLE IF NOT EXISTS vaccine_temperature_events (
     uncertainty_status VARCHAR(40) NOT NULL,
     boundary_crossing BOOLEAN NOT NULL,
     measurement_confidence VARCHAR(180) NOT NULL,
-    source_time TIMESTAMPTZ,
     event_time TIMESTAMPTZ NOT NULL,
     received_at TIMESTAMPTZ NOT NULL,
     stored_at TIMESTAMPTZ NOT NULL
@@ -60,5 +65,11 @@ CREATE INDEX IF NOT EXISTS ix_vaccine_events_vaccine_event_time
     ON vaccine_temperature_events (vaccine_type, event_time DESC);
 CREATE INDEX IF NOT EXISTS ix_vaccine_events_received_at
     ON vaccine_temperature_events (received_at DESC);
+CREATE INDEX IF NOT EXISTS ix_vaccine_events_batch_event_time
+    ON vaccine_temperature_events (batch_id, event_time DESC);
+CREATE INDEX IF NOT EXISTS ix_vaccine_events_occupancy_event_time
+    ON vaccine_temperature_events (occupancy_state, event_time DESC);
+CREATE INDEX IF NOT EXISTS ix_vaccine_events_severity_event_time
+    ON vaccine_temperature_events (severity, event_time DESC);
 
 COMMIT;

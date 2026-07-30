@@ -1,98 +1,53 @@
 # Cold-chain demo terminal runbook
 
-This file is the copy-paste command guide for the current repository layout.
-It uses the three current user-facing scenarios: `normal`, `recovery`, and
-`mixed`.
+This is the copy-paste guide for the three current scenarios:
 
-The project directory is:
+- `normal`: readings stay in the vaccine safe range.
+- `recovery`: readings start warm and move back toward the target.
+- `mixed`: one run with separate `normal`, `cooling_failure`, and `recovery` phases.
 
-```bash
+The commands below use the actual programs. No Make commands are required.
+
+Project directory:
+
+```text
 /Users/mokshjoshi/Documents/Internship/sensordashboard
 ```
 
-## 1. One-time setup
+## Most useful commands: full normal demo
 
-Run this once, or whenever the virtual environment does not exist.
+Run the first block once in a setup terminal:
 
 ```bash
 cd /Users/mokshjoshi/Documents/Internship/sensordashboard
-
 python3 -m venv .venv
 source .venv/bin/activate
-
 python3 -m pip install -r requirements.txt
+brew services start postgresql@16
+brew services start mosquitto
+APP_ENV=demo .venv/bin/python scripts/reset_demo.py --confirm-reset
 ```
 
-Start PostgreSQL and Mosquitto:
+Open Terminal 1 and leave the listener running:
 
 ```bash
 cd /Users/mokshjoshi/Documents/Internship/sensordashboard
 source .venv/bin/activate
-
-make start-infrastructure
-```
-
-Reset the local demo database. This is destructive and must be explicitly
-confirmed:
-
-```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
-source .venv/bin/activate
-
-APP_ENV=demo make reset-demo RESET_CONFIRM=YES
-```
-
-Do not run the reset command against production or a remote database. The
-reset command refuses non-local hosts and non-demo/development environments.
-
-## 2. Terminal 1: start the database listener
-
-Open a new terminal and leave this process running:
-
-```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
-source .venv/bin/activate
-
-make start-listener LISTENER_OUTPUT_MODE=verbose
-```
-
-Equivalent command:
-
-```bash
 python3 -m services.temperature_subscriber --write-db --output-mode verbose
 ```
 
-The listener receives MQTT events, validates them, and writes both
-`telemetry_logs` and `vaccine_temperature_events` in one PostgreSQL
-transaction.
-
-## 3. Terminal 2: start the dashboard backend
-
-Open another terminal and leave this process running:
+Open Terminal 2 and leave the dashboard backend running:
 
 ```bash
 cd /Users/mokshjoshi/Documents/Internship/sensordashboard
 source .venv/bin/activate
-
-make start-dashboard
-```
-
-Equivalent command:
-
-```bash
 python3 -m services.dashboard_bridge
 ```
 
-The dashboard backend is read-only. It reads PostgreSQL and exposes API routes
-for the browser.
-
-## 4. Terminal 3: start the frontend web server
-
-Open another terminal and leave this process running:
+Open Terminal 3 and leave the frontend running:
 
 ```bash
 cd /Users/mokshjoshi/Documents/Internship/sensordashboard/web
-
 python3 -m http.server 8765 --bind 127.0.0.1
 ```
 
@@ -102,101 +57,11 @@ Open the dashboard at:
 http://127.0.0.1:8765/index.html
 ```
 
-## 5. Terminal 4: run the normal scenario
-
-Use a new terminal for the generator:
+Open Terminal 4 and publish the normal scenario:
 
 ```bash
 cd /Users/mokshjoshi/Documents/Internship/sensordashboard
 source .venv/bin/activate
-
-make run-scenario \
-  SCENARIO=normal \
-  COUNT=30 \
-  INTERVAL_MS=100 \
-  SEED=42 \
-  OUTPUT_MODE=verbose
-```
-
-Verify persistence after the generator finishes:
-
-```bash
-make verify
-```
-
-## 6. Run the recovery scenario in isolation
-
-First stop the listener with `Control-C`. Then reset the database:
-
-```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
-source .venv/bin/activate
-
-APP_ENV=demo make reset-demo RESET_CONFIRM=YES
-make start-listener LISTENER_OUTPUT_MODE=verbose
-```
-
-In another terminal, run recovery:
-
-```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
-source .venv/bin/activate
-
-make run-scenario \
-  SCENARIO=recovery \
-  COUNT=30 \
-  INTERVAL_MS=100 \
-  SEED=42 \
-  OUTPUT_MODE=verbose
-
-make verify
-```
-
-Expected behavior: temperatures begin outside the safe range and move back
-toward the vaccine target.
-
-## 7. Run the mixed scenario in isolation
-
-Stop the listener with `Control-C`, reset, and restart it:
-
-```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
-source .venv/bin/activate
-
-APP_ENV=demo make reset-demo RESET_CONFIRM=YES
-make start-listener LISTENER_OUTPUT_MODE=verbose
-```
-
-In another terminal, run mixed:
-
-```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
-source .venv/bin/activate
-
-make run-scenario \
-  SCENARIO=mixed \
-  COUNT=30 \
-  INTERVAL_MS=100 \
-  SEED=42 \
-  OUTPUT_MODE=verbose
-
-make verify
-```
-
-Expected phases:
-
-```text
-normal -> cooling_failure -> recovery
-```
-
-## 8. Direct generator commands
-
-Normal events with the current default Pfizer profile:
-
-```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
-source .venv/bin/activate
-
 python3 -m services.temperature_event_generator \
   --sensor Pod1 \
   --vaccine pfizer_ultralow \
@@ -207,86 +72,193 @@ python3 -m services.temperature_event_generator \
   --output-mode verbose
 ```
 
-Moderna with a custom safe range:
+Verify the rows after the generator finishes:
 
 ```bash
 cd /Users/mokshjoshi/Documents/Internship/sensordashboard
 source .venv/bin/activate
+python3 scripts/verify_persistence.py
+```
 
+The listener prints each received event, its event time, receipt time,
+storage result, scenario, phase when present, pod status, and alert. The
+generator's default output is `summary`, which reports the requested scenario
+separately from the optional mixed-run phase breakdown and avoids printing
+every event in large runs.
+
+## Run recovery by itself
+
+Stop the listener with `Control-C`, reset the demo database, and start the
+listener again:
+
+```bash
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+source .venv/bin/activate
+APP_ENV=demo .venv/bin/python scripts/reset_demo.py --confirm-reset
+python3 -m services.temperature_subscriber --write-db --output-mode verbose
+```
+
+In another terminal, publish recovery:
+
+```bash
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+source .venv/bin/activate
 python3 -m services.temperature_event_generator \
   --sensor Pod1 \
-  --vaccine moderna \
-  --min-temp -50 \
-  --max-temp -15 \
+  --vaccine pfizer_ultralow \
   --scenario recovery \
-  --count 300 \
-  --interval-ms 400 \
+  --count 30 \
+  --interval-ms 100 \
   --seed 42 \
   --output-mode verbose
 ```
 
-The generator output modes are:
+Expected behavior: the first reading is outside the safe range and later
+readings move toward the target.
 
-```text
-none     no normal console output
-summary  one final run summary; this is the default
-verbose  print every generated event in a formatted block
-```
+## Run mixed by itself
 
-For large runs, use `summary` or `none` instead of `verbose`.
-
-For a large run where you want to watch the generator but avoid a very long
-terminal log, use `summary` in the generator and keep the listener in
-`LISTENER_OUTPUT_MODE=verbose`. The listener will still show every event that
-was received and persisted.
-
-## 9. Verify the database before opening the dashboard
-
-Read-only verification script:
+Stop the listener, reset the demo database, and start the listener again:
 
 ```bash
 cd /Users/mokshjoshi/Documents/Internship/sensordashboard
 source .venv/bin/activate
-
-make verify
+APP_ENV=demo .venv/bin/python scripts/reset_demo.py --confirm-reset
+python3 -m services.temperature_subscriber --write-db --output-mode verbose
 ```
 
-The output includes:
+In another terminal, publish mixed:
+
+```bash
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+source .venv/bin/activate
+python3 -m services.temperature_event_generator \
+  --sensor Pod1 \
+  --vaccine pfizer_ultralow \
+  --scenario mixed \
+  --count 30 \
+  --interval-ms 100 \
+  --seed 42 \
+  --output-mode verbose
+```
+
+The displayed fields stay unambiguous:
 
 ```text
-event ID
-Pod/device
-vaccine
-scenario
-temperature
-status
-event_time
-received_at
-ingestion latency
-event age
-total count
-first event time
-latest event time
+scenario: mixed
+phase: normal
+scenario: mixed
+phase: cooling_failure
+scenario: mixed
+phase: recovery
 ```
 
-## 10. Inspect PostgreSQL manually
+`mixed` is the scenario. The phase describes the current part of that mixed
+run; it is not combined into a value such as `mixed/recovery`.
 
-Open PostgreSQL:
+## Useful optional commands
+
+Use `summary` for a compact generator result. It reports requested, generated,
+published, failed, per-phase counts, first/last event times, elapsed time, and
+events per second:
+
+```bash
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+source .venv/bin/activate
+python3 -m services.temperature_event_generator \
+  --sensor Pod2 \
+  --vaccine pfizer_ultralow \
+  --scenario mixed \
+  --count 300 \
+  --interval-ms 20 \
+  --seed 42 \
+  --output-mode summary
+```
+
+Use `none` when the generator should be silent:
+
+```bash
+python3 -m services.temperature_event_generator --scenario normal --count 300 --seed 42 --output-mode none
+```
+
+Run an empty pod with cooling enabled to demonstrate energy waste:
+
+```bash
+python3 -m services.temperature_event_generator \
+  --sensor Pod3 \
+  --vaccine pfizer_ultralow \
+  --scenario normal \
+  --occupancy-state empty \
+  --cooling-enabled \
+  --count 10 \
+  --interval-ms 100 \
+  --seed 7 \
+  --output-mode verbose
+```
+
+Run an offline pod. Offline is intentionally different from empty:
+
+```bash
+python3 -m services.temperature_event_generator \
+  --sensor Pod4 \
+  --vaccine pfizer_ultralow \
+  --scenario normal \
+  --occupancy-state offline \
+  --count 10 \
+  --interval-ms 100 \
+  --seed 8 \
+  --output-mode verbose
+```
+
+Use Moderna only with an explicit safe range:
+
+```bash
+python3 -m services.temperature_event_generator \
+  --sensor Pod5 \
+  --vaccine moderna \
+  --min-temp -50 \
+  --max-temp -15 \
+  --scenario recovery \
+  --count 30 \
+  --interval-ms 100 \
+  --seed 42 \
+  --output-mode summary
+```
+
+## Verification and PostgreSQL inspection
+
+The reusable verification command shows the newest events, total count, first
+event time, latest event time, ingestion latency, and event age:
+
+```bash
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+source .venv/bin/activate
+python3 scripts/verify_persistence.py
+```
+
+Call the read-only dashboard API directly:
+
+```bash
+curl http://127.0.0.1:8787/health
+curl 'http://127.0.0.1:8787/api/live'
+curl 'http://127.0.0.1:8787/api/events?scenario=mixed&severity=critical'
+curl 'http://127.0.0.1:8787/api/analytics?pod=Pod1&scenario=mixed'
+curl 'http://127.0.0.1:8787/api/verification/latest-events'
+curl -o vaccine_events.csv 'http://127.0.0.1:8787/api/events/export.csv?pod=Pod1'
+```
+
+Inspect PostgreSQL manually:
 
 ```bash
 psql -U mokshjoshi -d iotdb
 ```
 
-Run these SQL commands inside `psql`:
-
 ```sql
 \dt
-
 \d telemetry_logs
 \d vaccine_temperature_events
 
 SELECT COUNT(*) FROM telemetry_logs;
-
 SELECT COUNT(*) FROM vaccine_temperature_events;
 
 SELECT
@@ -294,106 +266,77 @@ SELECT
     sensor_name AS pod,
     vaccine_type,
     scenario,
+    scenario_phase,
+    occupancy_state,
+    batch_id,
+    operational_status,
+    severity,
     temperature_c,
     status,
     event_time,
     received_at,
-    stored_at
+    stored_at,
+    EXTRACT(EPOCH FROM (received_at - event_time)) * 1000 AS ingestion_latency_ms,
+    EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - event_time)) AS event_age_seconds
 FROM vaccine_temperature_events
 ORDER BY event_time DESC, event_id DESC
 LIMIT 10;
 
-SELECT
-    COUNT(*) AS total_count,
-    MIN(event_time) AS first_event_time,
-    MAX(event_time) AS latest_event_time
+SELECT COUNT(*) AS total_count,
+       MIN(event_time) AS first_event_time,
+       MAX(event_time) AS latest_event_time
 FROM vaccine_temperature_events;
-```
-
-Exit PostgreSQL:
-
-```sql
 \q
 ```
 
-The current application tables are `telemetry_logs` and
-`vaccine_temperature_events`. The old `temperature_events` table is legacy
-schema and should not be used for the new demo flow.
+## Tests and troubleshooting
 
-## 11. Test the dashboard API directly
-
-Health check:
-
-```bash
-curl http://127.0.0.1:8787/health
-```
-
-Chronological events for the live dashboard:
-
-```bash
-curl http://127.0.0.1:8787/api/events
-```
-
-Newest events first for verification:
-
-```bash
-curl http://127.0.0.1:8787/api/verification/latest-events
-```
-
-CSV export of persisted events:
-
-```bash
-curl http://127.0.0.1:8787/api/events/export.csv
-```
-
-## 12. Run automated tests
-
-Python tests:
+Run the automated checks:
 
 ```bash
 cd /Users/mokshjoshi/Documents/Internship/sensordashboard
 source .venv/bin/activate
-
-make test
-```
-
-Browser data-layer tests:
-
-```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
-
+python3 -m unittest discover -s tests -p 'test_*.py' -v
 node --test web/scripts/vaccine-data.test.js
-```
-
-Python syntax check:
-
-```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
-source .venv/bin/activate
-
 python3 -m py_compile services/*.py scripts/*.py
+node --check web/scripts/vaccine.js
+node --check web/scripts/vaccine-data.js
+node --check web/scripts/vaccine-bridge.js
 ```
 
-## 13. Stop the demo
+Common fixes:
 
-Stop the listener, dashboard backend, and frontend with `Control-C` in their
-terminals. Then stop the local infrastructure:
+- If PostgreSQL or Mosquitto is unavailable, run `brew services list` and start
+  the missing service with `brew services start postgresql@16` or
+  `brew services start mosquitto`.
+- If the listener reports missing tables, run the explicit reset command in the
+  setup section and confirm `APP_ENV=demo` is set.
+- If the dashboard says PostgreSQL is unavailable, check
+  `curl http://127.0.0.1:8787/health` and read the dashboard backend terminal.
+- If the dashboard is blank, confirm the frontend is serving the `web`
+  directory and that the listener and generator terminals are still running.
+- If an event is shown as a duplicate, its stable `event_id` was already
+  processed. This is expected idempotent behavior.
+
+## Stop the demo
+
+Press `Control-C` in the listener, dashboard backend, frontend, and generator
+terminals. Then stop local infrastructure if it is no longer needed:
 
 ```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
-
-make stop-demo
+brew services stop mosquitto
+brew services stop postgresql@16
 ```
 
-## 14. Timestamp explanation for a meeting
+## Timestamp explanation
 
 ```text
-source_time  = optional historical CSV provenance
-event_time   = current time when the generator creates a new event
-received_at  = time when the MQTT listener receives the event
-stored_at    = time when PostgreSQL persists the event
+event_time   = current UTC time when the generator creates the event
+received_at  = current UTC time when the MQTT listener receives the event
+stored_at    = current UTC time when PostgreSQL stores the event
 ```
 
-The CSV timestamp is not used for freshness or latest-event ordering. The
-generator creates new current events. `--seed 42` makes the scenario/value
-pattern reproducible, but timestamps still represent the actual current run.
+The CSV contributes temperature readings used to shape the simulation. Its
+historical date/time is not copied into generated events, database rows, CSV
+exports, or the dashboard. A seed makes the generated IDs, source-row choice,
+and scenario/value pattern reproducible; it does not freeze the timestamps.

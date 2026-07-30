@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vaccine Raw Events</title>
+  <link rel="stylesheet" href="../styles/shared.css">
+  <link rel="stylesheet" href="../styles/vaccine.css?v=raw-readable-2">
+</head>
+<body>
+  <main class="content-scroll vaccine-page raw-page">
+    <header class="page-header">
+      <div>
+        <div class="eyebrow"><span class="demo-pill">POSTGRESQL</span><span id="rawStatusText">Connecting…</span></div>
+        <h1>Vaccine raw events</h1>
+        <p>Inspect every event persisted by the MQTT subscriber. This page only reads and filters PostgreSQL results.</p>
+      </div>
+      <div class="header-actions">
+        <a class="button secondary" href="domain-vaccine.html">Analytics</a>
+      </div>
+    </header>
+    <section class="card raw-card">
+      <div class="raw-toolbar">
+        <span class="raw-badge" id="rawMode">POSTGRESQL</span>
+        <label class="raw-label" for="rawSensorFilter">Sensor:</label>
+        <select class="raw-filter" id="rawSensorFilter"><option value="all">ALL PODS</option></select>
+        <label class="raw-label" for="rawScenarioFilter">Scenario:</label>
+        <select class="raw-filter" id="rawScenarioFilter"><option value="all">ALL SCENARIOS</option></select>
+        <span class="raw-label">Newest first · refreshes every 5 seconds</span>
+        <label class="raw-autoscroll"><input id="rawAutoFollow" type="checkbox" checked> Follow new events</label>
+        <span class="raw-label raw-count">Showing <span id="rowCount">0</span></span>
+      </div>
+      <div class="raw-context"><strong>Read-only event log</strong><span id="rawContext">Loading the latest persisted readings…</span></div>
+      <div class="raw-stream readable-raw-stream" id="rawStream" aria-live="polite"></div>
+      <div class="raw-footer"><div class="raw-stat">EVENTS <span id="statIn">0</span></div><div class="raw-stat">SOURCE <span id="rawSource">POSTGRESQL</span></div><div class="raw-stat">POLL <span>5 SEC</span></div></div>
+    </section>
+  </main>
+  <script src="../scripts/vaccine-data.js?v=readonly-1"></script>
+  <script src="../scripts/vaccine-bridge.js?v=readonly-1"></script>
+  <script src="../scripts/vaccine-raw.js?v=raw-readable-3"></script>
+</body>
+</html>

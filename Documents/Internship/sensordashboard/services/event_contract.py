@@ -28,8 +28,9 @@ def now_utc(clock: Callable[[], datetime] | None = None) -> datetime:
 def parse_timestamp(value: Any, field_name: str, *, assume_utc: bool = True) -> datetime:
     """Parse a timestamp and return an aware UTC datetime.
 
-    Historical CSV timestamps do not carry an offset. They are treated as UTC
-    for this local simulation and remain distinguishable through ``source_time``.
+    Live event timestamps must carry an offset. The generator creates them at
+    event creation time; historical CSV timestamps are not part of this
+    contract.
     """
     if isinstance(value, datetime):
         parsed = value

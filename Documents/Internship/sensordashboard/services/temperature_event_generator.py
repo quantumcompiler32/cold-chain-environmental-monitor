@@ -34,10 +34,12 @@ import pandas as pd
 import paho.mqtt.client as mqtt
 
 try:
+    from services.domain_rules import derive_operational_state, normalize_occupancy
     from services.temperature_uncertainty import SENSOR_TOLERANCE_C, classify_uncertainty
     from services.event_contract import format_timestamp, now_utc, parse_timestamp
     from services.terminal_output import format_event_block, format_service_message
 except ImportError:  # pragma: no cover - keeps direct script execution working.
+    from domain_rules import derive_operational_state, normalize_occupancy
     from temperature_uncertainty import SENSOR_TOLERANCE_C, classify_uncertainty
     from event_contract import format_timestamp, now_utc, parse_timestamp
     from terminal_output import format_event_block, format_service_message
@@ -177,6 +179,22 @@ def parse_arguments() -> argparse.Namespace:
         choices=SCENARIOS,
         default="normal",
         help="Controlled operating condition used for event generation.",
+    )
+    parser.add_argument(
+        "--occupancy-state",
+        choices=("loaded", "empty", "offline"),
+        default="loaded",
+        help="Pod domain state used for alerts and dashboard status.",
+    )
+    parser.add_argument(
+        "--batch-id",
+        help="Active batch ID for a loaded pod; defaults to a demo batch per Pod.",
+    )
+    parser.add_argument(
+        "--cooling-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Whether the pod cooling system is running (default: enabled).",
     )
     parser.add_argument(
         "--seed",
@@ -355,15 +373,8 @@ def load_temperature_data(csv_path: Path, requested_sensor: str):
             + ", ".join(columns)
         )
 
-    timestamps = pd.to_datetime(
-        frame["date"].astype(str) + " " + frame["time"].astype(str),
-        format="%d-%b-%y %H:%M:%S",
-        errors="coerce",
-    )
     values_f = pd.to_numeric(frame[selected], errors="coerce")
-    usable = pd.DataFrame(
-        {"source_timestamp": timestamps, "temperature_f": values_f}
-    ).dropna()
+    usable = pd.DataFrame({"temperature_f": values_f}).dropna()
 
     if usable.empty:
         raise ValueError(f"No usable readings were found for {selected}.")
@@ -384,10 +395,12 @@ def make_event(
     total_events: int,
     event_id: str | None = None,
     event_time: datetime | None = None,
+    occupancy_state: str = "loaded",
+    batch_id: str | None = None,
+    cooling_enabled: bool = True,
 ) -> dict[str, Any]:
-    """Build one portable JSON event with source and simulation provenance."""
-    # Preserve when the original reading happened, while adding a new time
-    # for this replayed event.
+    """Build one portable JSON event representing a newly generated reading."""
+    # The CSV supplies temperature shape only; this event is created now.
     source_temperature_c = float(row["temperature_c"])
     temperature_c = transform_temperature(
         source_temperature_c,
@@ -398,18 +411,18 @@ def make_event(
     )
     # Build the common envelope shared by the generator, subscriber, and UI.
     generated_event_time = now_utc(lambda: event_time) if event_time is not None else now_utc()
-    source_time = parse_timestamp(row["source_timestamp"], "source_time")
     event = {
         "event_id": event_id or str(uuid4()),
         "device_id": "vaccine_temperature_simulator",
         "event_time": format_timestamp(generated_event_time),
-        "source_time": format_timestamp(source_time),
         # Legacy aliases remain on the wire while consumers migrate.
         "timestamp": format_timestamp(generated_event_time),
-        "source_timestamp": format_timestamp(source_time),
         "sensor_name": sensor_name,
         "vaccine_type": profile.name,
         "scenario": scenario,
+        "occupancy_state": normalize_occupancy(occupancy_state),
+        "batch_id": batch_id,
+        "cooling_enabled": cooling_enabled,
         "temperature_c": round(temperature_c, 2),
         "status": classify_temperature(temperature_c, profile),
     }
@@ -430,6 +443,7 @@ def make_event(
             SENSOR_TOLERANCE_C,
         )
     )
+    event.update(derive_operational_state(event))
     return event
 
 
@@ -457,7 +471,7 @@ def main() -> int:
     if args.output_mode == "verbose":
         print(format_service_message("GENERATOR", f"sensor={sensor_name}; vaccine={profile.name}; scenario={args.scenario}"), flush=True)
         print(format_service_message("GENERATOR", f"temperature_range={profile.min_c}°C to {profile.max_c}°C; usable_readings={len(readings)}"), flush=True)
-        print(format_service_message("GENERATOR", f"publishing_to={MQTT_TOPIC}; seed={args.seed}; interval_ms={args.interval_ms}"), flush=True)
+        print(format_service_message("GENERATOR", f"publishing_to={MQTT_TOPIC}; seed={args.seed}; interval_ms={args.interval_ms}; occupancy={args.occupancy_state}"), flush=True)
         print(format_service_message("GENERATOR", "Press Control-C to stop."), flush=True)
 
     # Reuse source rows cyclically when max-events is larger than the dataset.
@@ -466,10 +480,12 @@ def main() -> int:
     published = 0
     failed = 0
     scenario_counts = Counter()
+    phase_counts = Counter()
     first_event_time = None
     last_event_time = None
     started = time.perf_counter()
     index = start_index
+    batch_id = args.batch_id or (f"{sensor_name}-DEMO-BATCH" if args.occupancy_state == "loaded" else None)
     direct_persist = None
     if args.write_db:
         try:
@@ -488,8 +504,15 @@ def main() -> int:
                 event_number=count + 1,
                 total_events=args.count,
                 event_id=str(UUID(int=rng.getrandbits(128))) if args.seed is not None else None,
+                occupancy_state=args.occupancy_state,
+                batch_id=batch_id,
+                cooling_enabled=args.cooling_enabled,
             )
-            scenario_counts[event.get("scenario_phase", event["scenario"])] += 1
+            # Keep the requested scenario separate from the optional phase.
+            # This prevents a mixed run from being reported as if its phases
+            # were three different top-level scenarios.
+            scenario_counts[event["scenario"]] += 1
+            phase_counts[event.get("scenario_phase", event["scenario"])] += 1
             event_time = parse_timestamp(event["event_time"], "event_time", assume_utc=False)
             first_event_time = first_event_time or event_time
             last_event_time = event_time
@@ -537,6 +560,7 @@ def main() -> int:
             "published": published,
             "failed": failed,
             "per_scenario": dict(sorted(scenario_counts.items())),
+            "per_phase": dict(sorted(phase_counts.items())),
             "first_event_time": format_timestamp(first_event_time) if first_event_time else None,
             "last_event_time": format_timestamp(last_event_time) if last_event_time else None,
             "elapsed_seconds": round(elapsed, 3),
