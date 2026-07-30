@@ -356,9 +356,6 @@ def load_temperature_data(csv_path: Path, requested_sensor: str):
     # pandas loads the CSV into a table so we can select a sensor column by
     # name and clean invalid cells.
     frame = pd.read_csv(csv_path, low_memory=False)
-    if not {"date", "time"}.issubset(frame.columns):
-        raise ValueError("The CSV must contain date and time columns.")
-
     excluded = {"date", "time", "Time Elapsed", "O2", "CO2"}
     columns = [
         c for c in frame.columns

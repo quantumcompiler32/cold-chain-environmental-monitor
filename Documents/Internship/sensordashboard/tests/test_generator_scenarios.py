@@ -1,9 +1,12 @@
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import patch
 
 from services.temperature_event_generator import (
+    load_temperature_data,
     make_event,
     parse_arguments,
     resolve_profile,
@@ -45,6 +48,17 @@ class GeneratorScenarioTests(unittest.TestCase):
         self.assertEqual(args.count, 9)
         self.assertEqual(args.seed, 42)
         self.assertEqual(args.output_mode, "summary")
+
+    def test_csv_temperature_guidance_does_not_require_or_import_a_timestamp(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            csv_path = Path(temporary_directory) / "temperatures.csv"
+            csv_path.write_text("Pod1\n32\n50\n", encoding="utf-8")
+
+            sensor_name, readings = load_temperature_data(csv_path, "Pod1")
+
+        self.assertEqual(sensor_name, "Pod1")
+        self.assertEqual(list(readings.columns), ["temperature_f", "temperature_c"])
+        self.assertNotIn("source_timestamp", readings.columns)
 
 
 if __name__ == "__main__":
