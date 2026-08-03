@@ -1,7 +1,10 @@
-# Keep the full paper dataset and local credentials outside GitHub.
-data/full/
-*.sqlite
-*.db
-.env
+.venv/
 __pycache__/
-node_modules/
+*.py[cod]
+.DS_Store
+*.log
+.dashboard_uploads/
+.pio/
+*.elf
+*.bin
+*.hex

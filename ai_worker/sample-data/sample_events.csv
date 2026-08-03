@@ -1,0 +1,5 @@
+timestamp,event_type,note
+2026-07-20T17:00:00Z,RUN_STARTED,Synthetic baseline
+2026-07-20T17:05:00Z,Door opened,Opened for 30 seconds
+2026-07-20T17:05:30Z,Door closed,Controlled event complete
+2026-07-20T17:20:00Z,RUN_STOPPED,Synthetic run complete
