@@ -176,6 +176,13 @@ class GeneratorScenarioTests(unittest.TestCase):
         self.assertEqual(list(readings.columns), ["temperature_f", "temperature_c"])
         self.assertNotIn("source_timestamp", readings.columns)
 
+    def test_builtin_guidance_works_without_a_csv(self):
+        sensor_name, readings = load_temperature_data(None, "Pod1")
+
+        self.assertEqual(sensor_name, "Pod1")
+        self.assertEqual(len(readings), 5)
+        self.assertTrue(readings["temperature_c"].between(-79.0, -78.0).all())
+
 
 if __name__ == "__main__":
     unittest.main()

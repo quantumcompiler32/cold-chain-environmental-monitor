@@ -89,8 +89,9 @@ PYTHONPATH=backend .venv/bin/python -m services.temperature_event_generator \
 ```
 
 Available scenarios are `normal`, `warning`, `recovery`, `mixed`, and
-`outlier`. The generator uses `ai_worker/datasets/Test1_TempCO2O2.csv` only as
-guidance for source variation; live event timestamps are generated at runtime.
+`outlier`. By default the generator uses small built-in deterministic guidance,
+so the demo does not require a raw CSV. An external CSV can be supplied with
+`--csv-file`; live event timestamps are generated at runtime.
 
 ### Dashboard website
 

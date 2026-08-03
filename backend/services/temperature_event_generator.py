@@ -50,14 +50,6 @@ MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 MQTT_TOPIC = "devices/temperature"
 
-# The canonical simulator guidance dataset is kept with the project's ML and
-# experiment data so it is not duplicated in the backend package.
-CSV_FILE = (
-    Path(__file__).resolve().parents[2]
-    / "ai_worker"
-    / "datasets"
-    / "Test1_TempCO2O2.csv"
-)
 DEFAULT_SENSOR = "Pod1"
 DEFAULT_INTERVAL_MS = 2000
 # The source file is a Pfizer ultralow experiment. Keep its small variations
@@ -165,7 +157,7 @@ def parse_arguments() -> argparse.Namespace:
     # argparse converts Terminal text such as --max-events 20 into Python
     # values that the rest of the program can use.
     parser = argparse.ArgumentParser(
-        description="Replay CSV temperature readings to MQTT."
+        description="Generate vaccine temperature events and publish them to MQTT."
     )
     parser.add_argument(
         "--sensor",
@@ -179,8 +171,8 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--csv-file",
-        default=str(CSV_FILE),
-        help="CSV file to replay; defaults to the bundled experiment file.",
+        default=None,
+        help="Optional external CSV file to replay; otherwise use built-in deterministic guidance.",
     )
     parser.add_argument(
         "--interval-ms",
@@ -378,12 +370,25 @@ def transform_temperature(
     raise ValueError(f"Unknown scenario: {scenario}")
 
 
-def load_temperature_data(csv_path: Path, requested_sensor: str):
+def built_in_temperature_data(requested_sensor: str):
+    """Return small deterministic guidance so the demo needs no raw CSV."""
+    temperatures_c = [-78.7, -78.5, -78.3, -78.4, -78.6]
+    temperatures_f = [(value * 9.0 / 5.0) + 32.0 for value in temperatures_c]
+    return requested_sensor, pd.DataFrame({
+        "temperature_f": temperatures_f,
+        "temperature_c": temperatures_c,
+    })
+
+
+def load_temperature_data(csv_path: Path | None, requested_sensor: str):
     """Load one sensor column and return usable timestamps and Celsius values."""
+    if csv_path is None:
+        return built_in_temperature_data(requested_sensor)
+
     if not csv_path.exists():
         raise FileNotFoundError(
             f"CSV file not found: {csv_path.resolve()}\n"
-            "Place archive/data/Test1_TempCO2O2.csv in the repository support area."
+            "Provide a valid external file with --csv-file or omit that option to use built-in guidance."
         )
 
     # pandas loads the CSV into a table so we can select a sensor column by
@@ -491,7 +496,8 @@ def main() -> int:
         sensor_runs = []
         for requested_sensor in args.sensor:
             sensor_name, readings = load_temperature_data(
-                Path(args.csv_file), requested_sensor
+                Path(args.csv_file) if args.csv_file else None,
+                requested_sensor,
             )
             sensor_runs.append({
                 "sensor_name": sensor_name,
