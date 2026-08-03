@@ -2,13 +2,14 @@
   const adapterFactory = global.Phase1Adapter;
   const bridge = global.VaccineBridge;
   const data = global.VaccineData;
-  if (!adapterFactory || !bridge || !data) return;
+  const inference = global.Phase1Inference;
+  if (!adapterFactory || !bridge || !data || !inference) return;
 
   const app = document.getElementById('app');
   const connectionBadge = document.getElementById('connectionBadge');
   const toast = document.getElementById('toast');
   const adapter = adapterFactory.createPhase1Adapter([], { connection: 'offline' });
-  const state = { route: 'operations', filters: { pod: 'all', scenario: 'all', timeRange: 'all' }, follow: true, expanded: new Set(), analysis: null, analysisKey: null, lastEventId: null, toastTimer: null };
+  const state = { route: 'operations', filters: { pod: 'all', scenario: 'all', timeRange: 'all' }, follow: true, expanded: new Set(), analysis: null, analysisKey: null, inferenceDraft: null, inferenceResult: null, inferenceError: null, inferenceBusy: false, lastEventId: null, toastTimer: null };
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
   const temperature = (value) => value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? '—' : `${Number(value).toFixed(1)}°C`;
   const timestamp = (value) => { const date = new Date(value); return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }); };
@@ -118,6 +119,35 @@
     return `<article class="model-card ${status}"><span class="kicker">${esc(result?.algorithm || kind)}</span><h2>${esc(title)}</h2><div class="model-value">${modelValue(result, kind)}</div><p>${esc(result?.message || 'Run analysis with more persisted events.')}</p><div class="model-meta"><span>Samples: ${result?.samples ?? '—'}</span><span>${result?.validation ? `${esc(result.validation.metric)}: ${result.validation.value}${result.validation.unit === '°C' ? '°C' : ''}` : 'Validation: —'}</span></div><p class="subtle">${esc(result?.basis || description)}</p></article>`;
   }
 
+  function inferenceDraft(event) {
+    return {
+      pod: event?.sensor_name || 'Pod1',
+      temperature: Number.isFinite(Number(event?.temperature_c)) ? Number(event.temperature_c) : -78.5,
+      vaccine: event?.vaccine_type || 'pfizer_ultralow',
+      scenario: event?.scenario || 'normal',
+    };
+  }
+
+  function renderInferenceResult() {
+    if (state.inferenceBusy) return '<div class="inference-message">Sending one Temperature event to the read-only ML service…</div>';
+    if (state.inferenceError) return `<div class="inference-message error" role="alert">${esc(state.inferenceError)}</div>`;
+    const result = state.inferenceResult;
+    if (!result) return '<div class="inference-message">Fill in the small form and submit one event for an advisory result.</div>';
+    const primary = result.primary || {};
+    const probability = Number.isFinite(Number(primary.excursionProbability)) ? `${Math.round(Number(primary.excursionProbability) * 100)}%` : '—';
+    const secondary = result.secondary || {};
+    return `<div class="inference-result"><div class="inference-primary"><span class="kicker">PRIMARY · ${esc(primary.algorithm || 'logistic regression')}</span><strong>${esc(probability)}</strong><span>${esc(primary.prediction || primary.message || 'No prediction')}</span></div><div class="inference-secondary"><div><small>Temperature trend</small><b>${esc(secondary.linear?.predictedTemperatureC === undefined ? 'Not enough context' : temperature(secondary.linear.predictedTemperatureC))}</b></div><div><small>Pod group</small><b>${esc(secondary.clustering?.cluster ? `Cluster ${secondary.clustering.cluster}` : 'Not enough Pods')}</b></div><div><small>Validation</small><b>${esc(primary.validation ? `${primary.validation.metric}: ${primary.validation.value}` : '—')}</b></div></div><p class="subtle">${esc(primary.basis || 'CSV-trained educational model')} · results are advisory and read-only.</p></div>`;
+  }
+
+  function renderInferencePanel(view) {
+    const latest = view.events.at(-1);
+    if (!state.inferenceDraft) state.inferenceDraft = inferenceDraft(latest);
+    const draft = state.inferenceDraft;
+    const pods = [...new Set(['Pod1', ...view.events.map((event) => event.sensor_name)])].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+    const select = (name, options, value) => `<select class="field" data-inference-field="${name}">${options.map((option) => `<option value="${esc(option.value)}" ${option.value === value ? 'selected' : ''}>${esc(option.label)}</option>`).join('')}</select>`;
+    return `<section class="panel inference-panel"><div class="panel-heading"><div><span class="kicker">ONE-EVENT INFERENCE</span><h3>Ask the ML service</h3><p>Enter the few facts that matter. The service derives status and keeps this read-only.</p></div><span class="mono-label">HTTP · PORT 5000</span></div><form data-inference-form class="inference-form"><label>Pod ${select('pod', pods.map((pod) => ({ value: pod, label: pod })), draft.pod)}</label><label>Temperature °C <input class="field" data-inference-field="temperature" type="number" step="0.1" value="${esc(draft.temperature)}"></label><label>Vaccine ${select('vaccine', [{ value: 'pfizer_ultralow', label: 'Pfizer ultralow' }, { value: 'moderna', label: 'Moderna' }], draft.vaccine)}</label><label>Scenario ${select('scenario', ['normal', 'warning', 'outlier', 'failure', 'recovery'].map((value) => ({ value, label: value })), draft.scenario)}</label><div class="inference-actions"><button class="button primary" type="submit">Predict event</button><button class="button" type="button" data-use-latest ${latest ? '' : 'disabled'}>Use latest event</button></div></form>${renderInferenceResult()}</section>`;
+  }
+
   function renderInterpretation() {
     adapter.setFilters(state.filters);
     const view = adapter.analysisView();
@@ -129,7 +159,7 @@
     }
     const models = state.analysis;
     const stale = Boolean(state.analysis && state.analysisKey !== currentKey);
-    return `<div class="page-header"><div><span class="eyebrow">EXPLAINABLE ML-ASSISTED ANALYSIS</span><h1>Interpretation &amp; methodology</h1><p>Use three constrained algorithms to investigate temperature behavior. Model results assist review; raw status and human disposition remain authoritative.</p></div><div class="page-actions"><span class="connection-badge ${view.connection === 'connected' ? '' : 'offline'}"><i></i>${view.connection === 'connected' ? 'DATA AVAILABLE' : 'DATA UNAVAILABLE'}</span></div></div><div class="safety-note"><strong>Review boundary:</strong> ML results do not release, quarantine, or declare affected stock safe. Every result below identifies its data basis and validation state.</div><div class="model-toolbar">${filterControls(view.options)}<button class="button primary" data-run-analysis>Run analysis</button><span class="mono-label">${stale ? 'New event data available · run analysis to refresh' : state.analysis ? `Last run ${timestamp(state.analysisAt)}` : 'Initial analysis uses the selected scope'}</span></div><section class="model-grid">${modelCard(models?.linear, 'linear', 'Near-term temperature', 'Timestamped temperature readings')}${modelCard(models?.logistic, 'logistic', 'Excursion probability', 'Stored status labels and temperature offset')}${modelCard(models?.clustering, 'clustering', 'Pod behavior groups', 'Average, range, and excursion rate per Pod')}</section><section class="methodology"><span class="kicker">MODEL METHODOLOGY &amp; GOVERNANCE</span><h2>What each result means</h2><div class="methodology-grid"><div><h3>Linear regression</h3><p>Fits a line to timestamped temperatures and estimates the next observed direction. It is a trend aid, not a failure guarantee.</p></div><div><h3>Logistic regression</h3><p>Uses stored in-range and out-of-range labels to estimate excursion probability for the selected event scope.</p></div><div><h3>K-means clustering</h3><p>Groups Pods using average temperature, temperature range, and excursion rate so similar behavior can be investigated together.</p></div></div></section>`;
+    return `<div class="page-header"><div><span class="eyebrow">EXPLAINABLE ML-ASSISTED ANALYSIS</span><h1>Interpretation &amp; methodology</h1><p>Use three constrained algorithms to investigate temperature behavior. Model results assist review; raw status and human disposition remain authoritative.</p></div><div class="page-actions"><span class="connection-badge ${view.connection === 'connected' ? '' : 'offline'}"><i></i>${view.connection === 'connected' ? 'DATA AVAILABLE' : 'DATA UNAVAILABLE'}</span></div></div><div class="safety-note"><strong>Review boundary:</strong> ML results do not release, quarantine, or declare affected stock safe. Every result below identifies its data basis and validation state.</div>${renderInferencePanel(view)}<div class="model-toolbar">${filterControls(view.options)}<button class="button primary" data-run-analysis>Run analysis</button><span class="mono-label">${stale ? 'New event data available · run analysis to refresh' : state.analysis ? `Last run ${timestamp(state.analysisAt)}` : 'Initial analysis uses the selected scope'}</span></div><section class="model-grid">${modelCard(models?.linear, 'linear', 'Near-term temperature', 'Timestamped temperature readings')}${modelCard(models?.logistic, 'logistic', 'Excursion probability', 'Stored status labels and temperature offset')}${modelCard(models?.clustering, 'clustering', 'Pod behavior groups', 'Average, range, and excursion rate per Pod')}</section><section class="methodology"><span class="kicker">MODEL METHODOLOGY &amp; GOVERNANCE</span><h2>What each result means</h2><div class="methodology-grid"><div><h3>Linear regression</h3><p>Fits a line to timestamped temperatures and estimates the next observed direction. It is a trend aid, not a failure guarantee.</p></div><div><h3>Logistic regression</h3><p>Uses stored in-range and out-of-range labels to estimate excursion probability for the selected event scope.</p></div><div><h3>K-means clustering</h3><p>Groups Pods using average temperature, temperature range, and excursion rate so similar behavior can be investigated together.</p></div></div></section>`;
   }
 
   function bindCommon() {
@@ -152,6 +182,28 @@
   function bindInterpretation() {
     const button = document.querySelector('[data-run-analysis]');
     if (button) button.addEventListener('click', () => { const view = adapter.analysisView(); state.analysis = adapter.runAnalysis(state.filters); state.analysisKey = analysisKey(view); state.analysisAt = new Date().toISOString(); notify('Analysis run completed for the selected event scope.'); render(); });
+    const form = document.querySelector('[data-inference-form]');
+    const latestButton = document.querySelector('[data-use-latest]');
+    if (latestButton) latestButton.addEventListener('click', () => { state.inferenceDraft = inferenceDraft(adapter.analysisView().events.at(-1)); state.inferenceResult = null; state.inferenceError = null; render(); });
+    if (form) form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const values = Object.fromEntries([...form.querySelectorAll('[data-inference-field]')].map((control) => [control.dataset.inferenceField, control.value]));
+      try {
+        const submitted = inference.buildInferenceEvent(values);
+        const context = adapter.analysisView().events.slice(-20);
+        state.inferenceDraft = values;
+        state.inferenceBusy = true;
+        state.inferenceResult = null;
+        state.inferenceError = null;
+        render();
+        state.inferenceResult = await inference.requestPrediction({ event: submitted, contextEvents: context, baseUrl: global.ML_SERVICE_URL || inference.DEFAULT_BASE_URL });
+      } catch (error) {
+        state.inferenceError = error.message || 'Inference request failed.';
+      } finally {
+        state.inferenceBusy = false;
+        render();
+      }
+    });
   }
 
   function render() {

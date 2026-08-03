@@ -153,6 +153,22 @@ button { cursor: pointer; }
 .raw-footer strong { color: var(--green); }
 
 .model-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 14px; padding: 15px; margin-bottom: 22px; background: var(--surface); border: 1px solid var(--line); }
+.inference-panel { margin-bottom: 22px; border-color: rgba(139,92,246,.45); }
+.inference-form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.inference-form label { display: grid; gap: 6px; color: var(--muted); font: 600 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.inference-form .field { min-width: 120px; }
+.inference-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.inference-message { margin-top: 16px; padding: 12px; color: var(--muted); background: rgba(255,255,255,.025); border: 1px solid var(--line); }
+.inference-message.error { color: #ffd7d4; border-color: rgba(239,68,68,.5); }
+.inference-result { margin-top: 16px; padding: 14px; background: rgba(16,185,129,.07); border: 1px solid rgba(16,185,129,.28); }
+.inference-primary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.inference-primary strong { color: var(--lavender); font: 700 30px var(--mono); }
+.inference-primary > span:last-child { color: var(--text); font-weight: 700; }
+.inference-secondary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+.inference-secondary div { padding-left: 9px; border-left: 2px solid var(--violet); }
+.inference-secondary small, .inference-secondary b { display: block; }
+.inference-secondary small { color: var(--muted); font-size: 10px; }
+.inference-secondary b { margin-top: 4px; color: var(--text); }
 .model-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 22px; }
 .model-card { min-height: 210px; padding: 20px; background: var(--surface); border: 1px solid var(--line); }
 .model-card.ready { border-color: rgba(16,185,129,.45); } .model-card.low_confidence { border-color: rgba(245,158,11,.5); } .model-card.insufficient_data { border-color: var(--line); }
@@ -200,4 +216,8 @@ button { cursor: pointer; }
   .raw-summary { grid-template-columns: 1fr; }
   .raw-summary .temperature { text-align: left; }
   .raw-footer { gap: 8px; flex-wrap: wrap; }
+}
+
+@media (max-width: 600px) {
+  .inference-secondary { grid-template-columns: 1fr; }
 }

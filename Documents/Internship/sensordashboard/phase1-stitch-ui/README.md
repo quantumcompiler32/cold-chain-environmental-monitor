@@ -23,6 +23,17 @@ python3 -m http.server 8765 --bind 127.0.0.1
 
 Open <http://127.0.0.1:8765/phase1-stitch-ui/>.
 
+For the one-event inference form on the Interpretation page, train the local
+model bundle and start the separate read-only service first:
+
+```bash
+make train-models
+python3 -m services.ml_service
+```
+
+The form uses `http://127.0.0.1:5000` by default and displays explicit service
+errors or insufficient-data states when the service or context is unavailable.
+
 If the bridge is offline, the UI remains usable for layout review and shows
 explicit offline and insufficient-data states instead of placeholder readings.
 

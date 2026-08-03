@@ -1,3 +1,4 @@
 paho-mqtt
 pandas
 psycopg[binary]
+Flask>=3.1,<4
