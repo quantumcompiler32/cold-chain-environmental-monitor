@@ -1,0 +1,554 @@
+(function exposeVaccineData(root, factory) {
+  const api = factory();
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  if (root) root.VaccineData = api;
+})(typeof globalThis === 'undefined' ? this : globalThis, function vaccineDataFactory() {
+  const PROFILE = Object.freeze({
+    id: 'pfizer_ultralow',
+    label: 'Pfizer ultralow',
+    targetC: -78.5,
+    lowerLimitC: -80,
+    upperLimitC: -60,
+  });
+
+  const SENSOR_TOLERANCE_C = 0.5;
+  const POD_TREND_WINDOW_MINUTES = 15;
+  const POD_CHART_WINDOW_MINUTES = 60;
+  const POD_RECOVERY_HOLD_MINUTES = 5;
+  const POD_RAPID_CHANGE_C = 0.5;
+
+  const STATUS_ORDER = ['STABLE', 'ACCEPTABLE', 'TOO_COLD', 'TOO_WARM'];
+  const PROFILE_DEFINITIONS = {
+    pfizer_ultralow: { id: 'pfizer_ultralow', label: 'Pfizer ultralow', targetC: -78.5, lowerLimitC: -80, upperLimitC: -60, guidance: 'Simulation profile based on the Pfizer ultralow cold-chain range.', sourceUrl: '' },
+    moderna: { id: 'moderna', label: 'Moderna / Spikevax', targetC: -32.5, lowerLimitC: -50, upperLimitC: -15, guidance: 'Suggested frozen-storage bounds from Moderna Spikevax guidance; editable for your simulation.', sourceUrl: 'https://products.modernatx.com/spikevaxpro/dosing-and-administration' },
+  };
+
+  function getProfile(id = PROFILE.id, bounds = {}) {
+    const base = PROFILE_DEFINITIONS[id] || PROFILE_DEFINITIONS[PROFILE.id];
+    const lowerValue = bounds.min_temp ?? bounds.storage_min_c;
+    const upperValue = bounds.max_temp ?? bounds.storage_max_c;
+    const lowerLimitC = lowerValue == null || lowerValue === '' ? base.lowerLimitC : Number(lowerValue);
+    const upperLimitC = upperValue == null || upperValue === '' ? base.upperLimitC : Number(upperValue);
+    return Object.freeze({ ...base, lowerLimitC, upperLimitC });
+  }
+
+  function classifyTemperature(value, profile = PROFILE) {
+    const temperature = Number(value);
+    if (!Number.isFinite(temperature)) return 'UNKNOWN';
+    if (!Number.isFinite(profile.lowerLimitC) || !Number.isFinite(profile.upperLimitC)) return 'UNKNOWN';
+    if (temperature < profile.lowerLimitC) return 'TOO_COLD';
+    if (temperature > profile.upperLimitC) return 'TOO_WARM';
+    if (Math.abs(temperature - profile.targetC) <= 1) return 'STABLE';
+    return 'ACCEPTABLE';
+  }
+
+  function classifyUncertainty(value, profile = PROFILE, tolerance = SENSOR_TOLERANCE_C) {
+    const temperature = Number(value);
+    const lower = Number(profile.lowerLimitC);
+    const upper = Number(profile.upperLimitC);
+    const margin = Number(tolerance);
+    if (![temperature, lower, upper, margin].every(Number.isFinite)) return 'UNKNOWN';
+    const possibleMin = temperature - margin;
+    const possibleMax = temperature + margin;
+    const crossesLower = possibleMin < lower && possibleMax >= lower;
+    const crossesUpper = possibleMin <= upper && possibleMax > upper;
+    if (crossesLower && crossesUpper) return 'BORDERLINE_RANGE';
+    if (crossesLower) return 'BORDERLINE_COLD';
+    if (crossesUpper) return 'BORDERLINE_WARM';
+    if (possibleMax < lower) return 'CLEARLY_TOO_COLD';
+    if (possibleMin > upper) return 'CLEARLY_TOO_WARM';
+    return 'WITHIN_RANGE';
+  }
+
+  function uncertaintyFields(value, profile = PROFILE, tolerance = SENSOR_TOLERANCE_C) {
+    const temperature = Number(value);
+    const margin = Number(tolerance);
+    const possibleMin = Number((temperature - margin).toFixed(2));
+    const possibleMax = Number((temperature + margin).toFixed(2));
+    return {
+      sensor_tolerance_c: Number(margin.toFixed(2)),
+      temperature_min_possible_c: possibleMin,
+      temperature_max_possible_c: possibleMax,
+      storage_min_c: Number(profile.lowerLimitC),
+      storage_max_c: Number(profile.upperLimitC),
+      uncertainty_status: classifyUncertainty(temperature, profile, margin),
+      boundary_crossing: classifyUncertainty(temperature, profile, margin).startsWith('BORDERLINE'),
+      measurement_confidence: 'Approximately +/-0.5 C Type-T thermocouple accuracy',
+    };
+  }
+
+  function parseCsvLine(line) {
+    const fields = [];
+    let field = '';
+    let quoted = false;
+    for (let index = 0; index < line.length; index += 1) {
+      const character = line[index];
+      const next = line[index + 1];
+      if (character === '"' && quoted && next === '"') {
+        field += '"';
+        index += 1;
+      } else if (character === '"') {
+        quoted = !quoted;
+      } else if (character === ',' && !quoted) {
+        fields.push(field);
+        field = '';
+      } else {
+        field += character;
+      }
+    }
+    fields.push(field);
+    return fields;
+  }
+
+  function normalizeEvent(raw, profile = PROFILE) {
+    const temperature = Number(raw.temperature_c ?? raw.temperature ?? raw.temp_c);
+    const eventProfile = getProfile(raw.vaccine_type ?? profile.id, raw);
+    return {
+      event_id: String(raw.event_id ?? raw.id ?? raw.event_sequence ?? raw.received_at ?? `${raw.timestamp ?? raw.event_timestamp ?? ''}|${raw.sensor_name ?? raw.sensor ?? ''}|${temperature}`),
+      device_id: String(raw.device_id ?? 'vaccine_temperature_simulator'),
+      event_time: String(raw.event_time ?? raw.timestamp ?? raw.event_timestamp ?? raw.received_at ?? ''),
+      timestamp: String(raw.event_time ?? raw.timestamp ?? raw.event_timestamp ?? raw.received_at ?? ''),
+      received_at: String(raw.received_at ?? ''),
+      stored_at: String(raw.stored_at ?? ''),
+      ingestion_latency_ms: raw.ingestion_latency_ms == null ? null : Number(raw.ingestion_latency_ms),
+      event_age_seconds: raw.event_age_seconds == null ? null : Number(raw.event_age_seconds),
+      sensor_name: String(raw.sensor_name ?? raw.sensor ?? 'Unknown'),
+      vaccine_type: eventProfile.id,
+      vaccine_label: eventProfile.label,
+      scenario: String(raw.scenario ?? 'normal'),
+      scenario_phase: String(raw.scenario_phase ?? ''),
+      occupancy_state: String(raw.occupancy_state ?? 'loaded'),
+      batch_id: String(raw.batch_id ?? ''),
+      cooling_enabled: raw.cooling_enabled !== false,
+      operational_status: String(raw.operational_status ?? operationalStatusFromObserved(raw.status, raw.occupancy_state, raw.cooling_enabled)),
+      severity: String(raw.severity ?? 'info'),
+      rule_alert: String(raw.rule_alert ?? ''),
+      temperature_c: temperature,
+      status: String(raw.status || classifyTemperature(temperature, eventProfile)),
+      ...uncertaintyFields(temperature, eventProfile, raw.sensor_tolerance_c ?? SENSOR_TOLERANCE_C),
+    };
+  }
+
+  function operationalStatusFromObserved(status, occupancy = 'loaded', coolingEnabled = true) {
+    if (String(occupancy).toLowerCase() === 'offline') return 'OFFLINE';
+    if (String(occupancy).toLowerCase() === 'empty') return coolingEnabled === false ? 'EMPTY' : 'ENERGY_WASTE';
+    if (status === 'SENSOR_FAULT') return 'SENSOR_FAULT';
+    if (status === 'TOO_COLD' || status === 'TOO_WARM') return 'CRITICAL';
+    return 'NORMAL';
+  }
+
+  function parseDateTime(dateText, timeText) {
+    const dateParts = String(dateText).trim().match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
+    const timeParts = String(timeText).trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (dateParts && timeParts) {
+      const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+      const year = dateParts[3].length === 2 ? 2000 + Number(dateParts[3]) : Number(dateParts[3]);
+      const month = months[dateParts[2][0].toUpperCase() + dateParts[2].slice(1).toLowerCase()];
+      if (month !== undefined) return new Date(Date.UTC(year, month, Number(dateParts[1]), Number(timeParts[1]), Number(timeParts[2]), Number(timeParts[3] || 0))).toISOString();
+    }
+    const parsed = Date.parse(`${dateText} ${timeText} UTC`);
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : '';
+  }
+
+  function parseWideTemperatureCsv(lines, headers, options = {}) {
+    const profile = options.profile || PROFILE;
+    const dateIndex = headers.findIndex((header) => header.toLowerCase() === 'date');
+    const timeIndex = headers.findIndex((header) => header.toLowerCase() === 'time');
+    const podColumns = headers.map((header, index) => ({ header, index })).filter(({ header }) => /^pod\d+$/i.test(header));
+    const dataLines = lines.slice(1);
+    const maxEvents = Number.isFinite(options.maxEvents) ? options.maxEvents : Infinity;
+    const maxRows = Number.isFinite(maxEvents) ? Math.max(1, Math.floor(maxEvents / Math.max(podColumns.length, 1))) : dataLines.length;
+    const rowStride = Math.max(1, Math.ceil(dataLines.length / maxRows));
+    const events = [];
+    dataLines.forEach((line, rowIndex) => {
+      if (rowIndex % rowStride !== 0 || events.length >= maxEvents) return;
+      const values = parseCsvLine(line);
+      const timestamp = parseDateTime(values[dateIndex], values[timeIndex]);
+      if (!timestamp) return;
+      podColumns.forEach(({ header, index }) => {
+        const fahrenheit = Number(values[index]);
+        if (!Number.isFinite(fahrenheit)) return;
+        events.push(normalizeEvent({
+          device_id: 'vaccine_temperature_dataset',
+          timestamp,
+          sensor_name: header,
+          vaccine_type: PROFILE.id,
+          scenario: 'normal',
+          temperature_c: Number(((fahrenheit - 32) * 5 / 9).toFixed(2)),
+        }, profile));
+      });
+    });
+    return events;
+  }
+
+  function limitEvents(events, maxEvents = 12000) {
+    if (!Number.isFinite(maxEvents) || events.length <= maxEvents) return events;
+    const bySensor = new Map();
+    events.forEach((event) => {
+      if (!bySensor.has(event.sensor_name)) bySensor.set(event.sensor_name, []);
+      bySensor.get(event.sensor_name).push(event);
+    });
+    const perSensor = Math.max(1, Math.floor(maxEvents / bySensor.size));
+    return Array.from(bySensor.values()).flatMap((sensorEvents) => {
+      const stride = Math.max(1, Math.ceil(sensorEvents.length / perSensor));
+      return sensorEvents.filter((_, index) => index % stride === 0).slice(0, perSensor);
+    });
+  }
+
+  function getChartHeight(sensorCount) {
+    return 340;
+  }
+
+  function parseTemperatureEvents(input, format, options = {}) {
+    const profile = options.profile || PROFILE;
+    if (Array.isArray(input)) return limitEvents(input.map((event) => normalizeEvent(event, profile)).filter((event) => Number.isFinite(event.temperature_c)), options.maxEvents);
+    if (typeof input !== 'string' || !input.trim()) return [];
+
+    if (format === 'json' || input.trim().startsWith('[') || input.trim().startsWith('{')) {
+      const parsed = JSON.parse(input);
+      const events = Array.isArray(parsed) ? parsed : (parsed.events || parsed.data || [parsed]);
+      return limitEvents(events.map((event) => normalizeEvent(event, profile)).filter((event) => Number.isFinite(event.temperature_c)), options.maxEvents);
+    }
+
+    const lines = input.trim().split(/\r?\n/).filter(Boolean);
+    if (lines.length < 2) return [];
+    const headers = parseCsvLine(lines[0]).map((header) => header.trim());
+    if (headers.some((header) => header.toLowerCase() === 'date') && headers.some((header) => header.toLowerCase() === 'time') && headers.some((header) => /^pod\d+$/i.test(header))) {
+      return parseWideTemperatureCsv(lines, headers, options);
+    }
+    return lines.slice(1).map((line) => {
+      const values = parseCsvLine(line);
+      return normalizeEvent(Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ''])), profile);
+    }).filter((event) => Number.isFinite(event.temperature_c)).slice(0, options.maxEvents || undefined);
+  }
+
+  function timestampValue(timestamp) {
+    const value = Date.parse(String(timestamp).replace(' ', 'T'));
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  function eventSequence(event) {
+    const value = Number(event.event_id);
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  function sortedEvents(events) {
+    return events.slice().sort((left, right) => timestampValue(left.timestamp) - timestampValue(right.timestamp) || eventSequence(left) - eventSequence(right));
+  }
+
+  function trendSlopeCPerHour(events) {
+    if (events.length < 2) return null;
+    const firstTime = timestampValue(events[0].timestamp);
+    const points = events.map((event) => ({
+      x: (timestampValue(event.timestamp) - firstTime) / 3600000,
+      y: Number(event.temperature_c),
+    })).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+    if (points.length < 2) return null;
+    const meanX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
+    const meanY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+    const denominator = points.reduce((sum, point) => sum + (point.x - meanX) ** 2, 0);
+    if (!denominator) return null;
+    return points.reduce((sum, point) => sum + (point.x - meanX) * (point.y - meanY), 0) / denominator;
+  }
+
+  function podTrendMessage(latest, trendKey) {
+    if (trendKey === 'energy_waste') return { message: 'Pod is empty while cooling is active', recommendation: 'Consider standby mode' };
+    if (trendKey === 'offline') return { message: 'Pod has stopped reporting', recommendation: 'Check sensor connection' };
+    if (trendKey === 'sensor_fault') return { message: 'Sensor is reporting a fault', recommendation: 'Check sensor' };
+    if (trendKey === 'too_warm') return { message: 'Temperature is above the safe range', recommendation: 'Inspect cooling and review door activity' };
+    if (trendKey === 'too_cold') return { message: 'Temperature is below the safe range', recommendation: 'Check sensor and cooling settings' };
+    if (trendKey === 'rapid_warming') return { message: 'Temperature is rising quickly', recommendation: 'Review door activity and inspect cooling' };
+    if (trendKey === 'rapid_cooling') return { message: 'Temperature is falling quickly', recommendation: 'Check sensor and cooling settings' };
+    if (trendKey === 'recovering') return { message: 'Temperature is moving back toward the safe range', recommendation: 'Monitor recovery until the temperature stabilizes' };
+    if (trendKey === 'warming') return { message: 'Temperature is trending warmer', recommendation: 'Review the trend and inspect cooling if it continues' };
+    if (trendKey === 'cooling') return { message: 'Temperature is trending colder', recommendation: 'Review the trend and verify the sensor' };
+    if (String(latest?.rule_alert || '') === 'LOADED_POD_NO_BATCH') return { message: 'Pod is loaded but no batch is assigned', recommendation: 'Review batch assignment' };
+    if (String(latest?.uncertainty_status || '').startsWith('BORDERLINE')) return { message: 'Temperature is close to a storage boundary', recommendation: 'Review the trend and verify the sensor' };
+    return { message: 'Temperature is stable', recommendation: 'No action needed' };
+  }
+
+  function buildPodSummary(history, profile = PROFILE, options = {}) {
+    const ordered = sortedEvents(history).filter((event) => Number.isFinite(Number(event.temperature_c)));
+    const latest = ordered.at(-1);
+    const trendWindowMinutes = Number(options.trendWindowMinutes ?? POD_TREND_WINDOW_MINUTES);
+    const chartWindowMinutes = Number(options.chartWindowMinutes ?? POD_CHART_WINDOW_MINUTES);
+    if (!latest) {
+      return {
+        latest: null,
+        operationalStatus: 'OFFLINE',
+        trendKey: 'offline',
+        trendMessage: 'Pod has no recent reading',
+        recommendation: 'Check sensor connection',
+        recentEvents: [],
+        chartEvents: [],
+        slopeCPerHour: null,
+        deltaC: null,
+        observedMinutes: 0,
+        trendWindowMinutes,
+        chartWindowMinutes,
+      };
+    }
+
+    const latestTime = timestampValue(latest.timestamp);
+    const recentWindow = ordered.filter((event) => latestTime - timestampValue(event.timestamp) <= trendWindowMinutes * 60000);
+    const recentEvents = recentWindow.length >= 2 ? recentWindow : ordered.slice(-Math.min(6, ordered.length));
+    const chartWindow = ordered.filter((event) => latestTime - timestampValue(event.timestamp) <= chartWindowMinutes * 60000);
+    const chartEvents = chartWindow.length >= 2 ? chartWindow : ordered.slice(-Math.min(12, ordered.length));
+    const firstRecent = recentEvents[0];
+    const deltaC = firstRecent ? Number(latest.temperature_c) - Number(firstRecent.temperature_c) : null;
+    const observedMinutes = firstRecent ? Math.max(0, (latestTime - timestampValue(firstRecent.timestamp)) / 60000) : 0;
+    const slopeCPerHour = trendSlopeCPerHour(recentEvents);
+    const recoveryHoldMinutes = Number(options.recoveryHoldMinutes ?? POD_RECOVERY_HOLD_MINUTES);
+    const lastExcursionIndex = ordered.reduce((index, event, eventIndex) => event.status === 'TOO_COLD' || event.status === 'TOO_WARM' ? eventIndex : index, -1);
+    const previousExcursion = lastExcursionIndex >= 0 && lastExcursionIndex < ordered.length - 1;
+    const postExcursion = previousExcursion ? ordered.slice(lastExcursionIndex + 1) : [];
+    const recoveryMinutes = postExcursion.length ? Math.max(0, (latestTime - timestampValue(postExcursion[0].timestamp)) / 60000) : 0;
+    const recoveryHeld = recoveryMinutes >= recoveryHoldMinutes;
+    const latestStatus = latest.operational_status || 'NORMAL';
+    let trendKey = 'stable';
+    if (latestStatus === 'ENERGY_WASTE') trendKey = 'energy_waste';
+    else if (latestStatus === 'OFFLINE') trendKey = 'offline';
+    else if (latestStatus === 'SENSOR_FAULT') trendKey = 'sensor_fault';
+    else if (latest.status === 'TOO_WARM') trendKey = 'too_warm';
+    else if (latest.status === 'TOO_COLD') trendKey = 'too_cold';
+    else if (previousExcursion && recoveryHeld && postExcursion.length >= 2 && Math.abs(Number(postExcursion.at(-1).temperature_c) - Number(postExcursion[0].temperature_c)) < 0.15) trendKey = 'stable';
+    else if (previousExcursion && Number.isFinite(deltaC) && deltaC < -0.15 && !recoveryHeld) trendKey = 'recovering';
+    else if (Number.isFinite(deltaC) && deltaC >= POD_RAPID_CHANGE_C) trendKey = 'rapid_warming';
+    else if (Number.isFinite(deltaC) && deltaC <= -POD_RAPID_CHANGE_C) trendKey = 'rapid_cooling';
+    else if (Number.isFinite(deltaC) && deltaC >= 0.15) trendKey = 'warming';
+    else if (Number.isFinite(deltaC) && deltaC <= -0.15) trendKey = 'cooling';
+    else if (latestStatus === 'WARNING' || String(latest.uncertainty_status || '').startsWith('BORDERLINE')) trendKey = 'borderline';
+    const copy = podTrendMessage(latest, trendKey);
+    return {
+      latest,
+      operationalStatus: latestStatus,
+      trendKey,
+      trendMessage: copy.message,
+      recommendation: copy.recommendation,
+      recentEvents,
+      chartEvents,
+      slopeCPerHour,
+      deltaC,
+      observedMinutes,
+      trendWindowMinutes,
+      chartWindowMinutes,
+      recoveryHoldMinutes,
+    };
+  }
+
+  function summarizeSensors(events) {
+    const groups = new Map();
+    sortedEvents(events).forEach((event) => {
+      if (!groups.has(event.sensor_name)) groups.set(event.sensor_name, []);
+      groups.get(event.sensor_name).push(event);
+    });
+
+    return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, undefined, { numeric: true })).map(([sensorName, sensorEvents]) => {
+      const temperatures = sensorEvents.map((event) => event.temperature_c);
+      const latest = sensorEvents[sensorEvents.length - 1];
+      const statusCounts = STATUS_ORDER.reduce((counts, status) => {
+        counts[status] = sensorEvents.filter((event) => event.status === status).length;
+        return counts;
+      }, {});
+      return {
+        sensorName,
+        latestTemperatureC: latest.temperature_c,
+        latestTimestamp: latest.timestamp,
+        latestScenario: latest.scenario,
+        latestPhase: latest.scenario_phase,
+        latestOperationalStatus: latest.operational_status,
+        latestSeverity: latest.severity,
+        latestRuleAlert: latest.rule_alert,
+        latestOccupancy: latest.occupancy_state,
+        latestBatchId: latest.batch_id,
+        latestEventTime: latest.event_time,
+        status: latest.status,
+        averageTemperatureC: temperatures.reduce((sum, value) => sum + value, 0) / temperatures.length,
+        minimumTemperatureC: Math.min(...temperatures),
+        maximumTemperatureC: Math.max(...temperatures),
+        readingCount: sensorEvents.length,
+        excursionCount: statusCounts.TOO_COLD + statusCounts.TOO_WARM,
+        statusCounts,
+      };
+    });
+  }
+
+  function buildChartSeries(events, selectedSensors, options = {}) {
+    const sensors = selectedSensors && selectedSensors.length
+      ? selectedSensors
+      : summarizeSensors(events).slice(0, 6).map((sensor) => sensor.sensorName);
+    const maxPoints = Math.max(2, Math.floor(Number(options.maxPoints ?? 180)));
+    const byTimestamp = new Map();
+    sortedEvents(events).forEach((event) => {
+      if (!sensors.includes(event.sensor_name)) return;
+      const bucket = byTimestamp.get(event.timestamp) || new Map();
+      const values = bucket.get(event.sensor_name) || [];
+      values.push(event.temperature_c);
+      bucket.set(event.sensor_name, values);
+      byTimestamp.set(event.timestamp, bucket);
+    });
+    const entries = Array.from(byTimestamp.entries());
+    const pointCount = Math.min(maxPoints, entries.length);
+    const buckets = Array.from({ length: pointCount }, (_, index) => {
+      const start = Math.floor(index * entries.length / pointCount);
+      const end = Math.max(start + 1, Math.floor((index + 1) * entries.length / pointCount));
+      return entries.slice(start, end);
+    });
+    const labels = buckets.map((bucket) => bucket.at(-1)?.[0] || '');
+    return {
+      labels,
+      series: sensors.map((sensorName) => ({
+        sensorName,
+        values: buckets.map((bucket) => {
+          const values = bucket.flatMap(([, timestampBucket]) => timestampBucket.get(sensorName) || []).filter(Number.isFinite);
+          return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+        }),
+      })),
+    };
+  }
+
+  function buildStatusCounts(events) {
+    return STATUS_ORDER.reduce((counts, status) => {
+      counts[status] = events.filter((event) => event.status === status).length;
+      return counts;
+    }, {});
+  }
+
+  function statusLabel(status) {
+    return { STABLE: 'In range', ACCEPTABLE: 'In range', TOO_COLD: 'Too cold', TOO_WARM: 'Too warm', UNKNOWN: 'Unknown' }[status] || status || 'Unknown';
+  }
+
+  function operationalStatusLabel(status) {
+    return {
+      NORMAL: 'Normal',
+      WARNING: 'Warning',
+      CRITICAL: 'Critical',
+      SENSOR_FAULT: 'Sensor fault',
+      EMPTY: 'Empty',
+      ENERGY_WASTE: 'Energy waste',
+      OFFLINE: 'Offline',
+    }[status] || status || 'Unknown';
+  }
+
+  function summarize(events) {
+    const statuses = buildStatusCounts(events);
+    return {
+      total: events.length,
+      sensors: new Set(events.map((event) => event.sensor_name)).size,
+      outOfRange: statuses.TOO_COLD + statuses.TOO_WARM,
+      latest: sortedEvents(events).at(-1),
+      statuses,
+    };
+  }
+
+  function buildScenarioCounts(events) {
+    return events.reduce((counts, event) => {
+      const key = scenarioDisplayKey(event);
+      counts[key] = (counts[key] || 0) + 1;
+      return counts;
+    }, {});
+  }
+
+  function scenarioDisplayKey(event) {
+    return event.scenario === 'mixed' && event.scenario_phase
+      ? event.scenario_phase
+      : event.scenario;
+  }
+
+  function scenarioDisplayLabel(value) {
+    return {
+      normal: 'Normal',
+      recovery: 'Recovery',
+      cooling_failure: 'Cooling failure',
+      mixed: 'Mixed',
+    }[value] || String(value || 'Unknown').replaceAll('_', ' ');
+  }
+
+  function buildScenarioOutcomeSeries(events) {
+    const groups = new Map();
+    events.forEach((event) => {
+      const key = scenarioDisplayKey(event);
+      const group = groups.get(key) || { label: key, total: 0, tooCold: 0, tooWarm: 0, borderline: 0, crossing: 0 };
+      group.total += 1;
+      if (event.status === 'TOO_COLD') group.tooCold += 1;
+      if (event.status === 'TOO_WARM') group.tooWarm += 1;
+      if (String(event.uncertainty_status || '').startsWith('BORDERLINE')) group.borderline += 1;
+      if (event.boundary_crossing) group.crossing += 1;
+      groups.set(key, group);
+    });
+    return Array.from(groups.values());
+  }
+
+  function buildSensorSpreadSeries(events, selectedSensors = []) {
+    const selected = selectedSensors.length ? selectedSensors : summarizeSensors(events).map((sensor) => sensor.sensorName);
+    return selected.map((sensorName) => {
+      const values = events.filter((event) => event.sensor_name === sensorName).map((event) => event.temperature_c).filter(Number.isFinite);
+      if (!values.length) return { label: sensorName, minimum: null, average: null, maximum: null };
+      return { label: sensorName, minimum: Math.min(...values), average: values.reduce((sum, value) => sum + value, 0) / values.length, maximum: Math.max(...values) };
+    }).filter((value) => value.minimum !== null);
+  }
+
+  function buildUncertaintySeries(events) {
+    const groups = new Map();
+    events.forEach((event) => {
+      const day = String(event.timestamp).slice(0, 10) || 'Unknown';
+      const group = groups.get(day) || { label: day, borderline: 0, crossing: 0 };
+      if (String(event.uncertainty_status || '').startsWith('BORDERLINE')) group.borderline += 1;
+      if (event.boundary_crossing) group.crossing += 1;
+      groups.set(day, group);
+    });
+    return Array.from(groups.values());
+  }
+
+  function buildExcursionSeries(events) {
+    const buckets = new Map();
+    sortedEvents(events).forEach((event) => {
+      const day = String(event.timestamp).slice(0, 10) || 'Unknown';
+      const bucket = buckets.get(day) || { tooCold: 0, tooWarm: 0 };
+      if (event.status === 'TOO_COLD') bucket.tooCold += 1;
+      if (event.status === 'TOO_WARM') bucket.tooWarm += 1;
+      buckets.set(day, bucket);
+    });
+    return Array.from(buckets.entries()).map(([label, value]) => ({ label, ...value }));
+  }
+
+  function toCsv(events) {
+    const headers = ['event_id', 'device_id', 'event_time', 'received_at', 'stored_at', 'sensor_name', 'vaccine_type', 'scenario', 'scenario_phase', 'occupancy_state', 'batch_id', 'cooling_enabled', 'operational_status', 'severity', 'rule_alert', 'temperature_c', 'status', 'sensor_tolerance_c', 'temperature_min_possible_c', 'temperature_max_possible_c', 'storage_min_c', 'storage_max_c', 'uncertainty_status', 'boundary_crossing', 'measurement_confidence'];
+    const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    return [headers.join(','), ...events.map((event) => headers.map((header) => quote(event[header])).join(','))].join('\n');
+  }
+
+  return {
+    PROFILE,
+    SENSOR_TOLERANCE_C,
+    PROFILE_DEFINITIONS,
+    getProfile,
+    normalizeEvent,
+    STATUS_ORDER,
+    classifyTemperature,
+    classifyUncertainty,
+    uncertaintyFields,
+    parseTemperatureEvents,
+    summarizeSensors,
+    buildChartSeries,
+    buildPodSummary,
+    POD_TREND_WINDOW_MINUTES,
+    POD_CHART_WINDOW_MINUTES,
+    POD_RECOVERY_HOLD_MINUTES,
+    POD_RAPID_CHANGE_C,
+    buildStatusCounts,
+    buildScenarioCounts,
+    scenarioDisplayKey,
+    scenarioDisplayLabel,
+    buildScenarioOutcomeSeries,
+    buildSensorSpreadSeries,
+    buildUncertaintySeries,
+    buildExcursionSeries,
+    limitEvents,
+    getChartHeight,
+    toCsv,
+    statusLabel,
+    operationalStatusLabel,
+    summarize,
+  };
+});

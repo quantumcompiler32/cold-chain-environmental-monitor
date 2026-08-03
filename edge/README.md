@@ -12,9 +12,9 @@ Build, board behavior, sensor readings, Wi-Fi behavior, authentication,
 storage, and long-running reliability still need hardware validation. Treat all
 features below as possibilities represented in the source, not verified claims.
 
-The firmware targets the **Arduino UNO R4 WiFi**. The UNO R4 Minima reference
-image is included for comparison, but this firmware cannot run on the Minima as
-written because it depends on the UNO R4 WiFi connectivity module and `WiFiS3`.
+The firmware targets the **Arduino UNO R4 WiFi**. The UNO R4 Minima is not
+supported by this firmware because it depends on the UNO R4 WiFi connectivity
+module and `WiFiS3`.
 
 ## Possible capabilities in the source
 
@@ -43,9 +43,8 @@ Expected core hardware:
 - Data-capable USB-C cable
 
 Optional hardware includes an AHT20 or AHT20/BMP280 module and a DS3231 RTC.
-The wiring diagram and hardware reference images are in `images/`. Read the
-wiring information before applying power; the BMP280 module described by the
-project uses 3.3 V.
+Read the wiring information before applying power; the BMP280 module described
+by the project uses 3.3 V.
 
 ## Build and upload attempt
 
@@ -60,14 +59,6 @@ pio device monitor --baud 115200
 
 These commands describe the intended workflow; they are not evidence that the
 current firmware builds, uploads, or operates correctly on the available board.
-
-The optional serial helper is:
-
-```bash
-python3 tools/serial_diagnostics.py --baud 115200
-```
-
-It requires `pyserial` and is intended for UNO R4 WiFi serial output.
 
 ## Important limitations and future work
 
