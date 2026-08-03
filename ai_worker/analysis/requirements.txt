@@ -1,5 +1,0 @@
-pandas>=2.3
-numpy>=2.2
-matplotlib>=3.10
-jupyter>=1.1
-pyserial>=3.5
