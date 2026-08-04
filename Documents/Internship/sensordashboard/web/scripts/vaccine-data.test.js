@@ -1,7 +1,20 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { normalizeEvent, statusLabel, operationalStatusLabel, buildScenarioCounts, scenarioDisplayLabel, buildPodSummary, buildChartSeries } = require('./vaccine-data.js');
+const {
+  normalizeEvent,
+  statusLabel,
+  operationalStatusLabel,
+  buildScenarioCounts,
+  scenarioDisplayLabel,
+  buildPodSummary,
+  buildChartSeries,
+  getDateRange,
+  formatTemperature,
+  formatAxisTimestamp,
+  aggregateTemperatureSeries,
+  movingAverage,
+} = require('./vaccine-data.js');
 
 function podEvent(eventId, eventTime, temperature, overrides = {}) {
   return normalizeEvent({
@@ -127,4 +140,70 @@ test('aggregates dense chart input into a readable number of points', () => {
   assert.equal(chart.labels.length, 40);
   assert.equal(chart.series[0].values.length, 40);
   assert.ok(chart.series[0].values.every(Number.isFinite));
+});
+
+test('builds daily, weekly, monthly, and custom date ranges from a fixed local date', () => {
+  const now = new Date('2026-08-04T15:30:00-07:00');
+
+  assert.deepEqual(getDateRange('daily', now), {
+    start: '2026-08-04T07:00:00.000Z',
+    end: '2026-08-04T22:30:00.000Z',
+  });
+  assert.deepEqual(getDateRange('weekly', now), {
+    start: '2026-08-03T07:00:00.000Z',
+    end: '2026-08-04T22:30:00.000Z',
+  });
+  assert.deepEqual(getDateRange('monthly', now), {
+    start: '2026-08-01T07:00:00.000Z',
+    end: '2026-08-04T22:30:00.000Z',
+  });
+  assert.deepEqual(getDateRange('custom', now, {
+    start: '2026-07-29T09:00',
+    end: '2026-07-30T17:00',
+  }), {
+    start: '2026-07-29T16:00:00.000Z',
+    end: '2026-07-31T00:00:00.000Z',
+  });
+});
+
+test('formats temperature in the selected unit and labels the chart timezone', () => {
+  assert.equal(formatTemperature(-40, 'C'), '−40.0°C');
+  assert.equal(formatTemperature(-40, 'F'), '−40.0°F');
+  assert.equal(formatTemperature(null, 'F'), '—');
+  assert.equal(formatAxisTimestamp('2026-08-04T19:30:00Z', {
+    timeZone: 'America/Los_Angeles',
+    locale: 'en-US',
+  }), 'Aug 4, 12:30 PM PDT');
+});
+
+test('aggregates explicit hourly intervals and computes a three-point trailing average', () => {
+  const events = [
+    podEvent(1, '2026-08-04T00:05:00Z', -78),
+    podEvent(2, '2026-08-04T00:55:00Z', -77),
+    podEvent(3, '2026-08-04T01:10:00Z', -76),
+    podEvent(4, '2026-08-04T02:10:00Z', -75),
+  ];
+  const series = aggregateTemperatureSeries(events, ['Pod1'], { interval: 'hour', movingAverageWindow: 3 });
+
+  assert.deepEqual(series.labels, [
+    '2026-08-04T00:00:00.000Z',
+    '2026-08-04T01:00:00.000Z',
+    '2026-08-04T02:00:00.000Z',
+  ]);
+  assert.deepEqual(series.series[0].values, [-77.5, -76, -75]);
+  assert.deepEqual(series.series[0].movingAverage, [-77.5, -76.75, -76.16666666666667]);
+  assert.equal(series.definition, 'Hourly buckets; each value is the arithmetic mean of readings in that UTC hour.');
+  assert.equal(series.movingAverageDefinition, 'Trailing 3-point moving average of aggregated interval means; the current point and up to 2 prior points are averaged.');
+  assert.deepEqual(movingAverage([1, 2, 3, 4], 3), [1, 1.5, 2, 3]);
+});
+
+test('keeps latest recorded temperature separate from period average', () => {
+  const summary = require('./vaccine-data.js').summarizeSensors([
+    podEvent(1, '2026-08-04T00:00:00Z', -78),
+    podEvent(2, '2026-08-04T01:00:00Z', -74),
+  ])[0];
+
+  assert.equal(summary.latestTemperatureC, -74);
+  assert.equal(summary.averageTemperatureC, -76);
+  assert.notEqual(summary.latestTemperatureC, summary.averageTemperatureC);
 });

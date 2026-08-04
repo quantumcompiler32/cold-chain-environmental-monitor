@@ -16,6 +16,12 @@
   const POD_CHART_WINDOW_MINUTES = 60;
   const POD_RECOVERY_HOLD_MINUTES = 5;
   const POD_RAPID_CHANGE_C = 0.5;
+  const AGGREGATION_INTERVALS = Object.freeze({
+    raw: Object.freeze({ label: 'Raw readings', milliseconds: 0 }),
+    fifteen_minutes: Object.freeze({ label: '15-minute', milliseconds: 15 * 60 * 1000 }),
+    hourly: Object.freeze({ label: 'Hourly', milliseconds: 60 * 60 * 1000 }),
+    daily: Object.freeze({ label: 'Daily', milliseconds: 24 * 60 * 60 * 1000 }),
+  });
 
   const STATUS_ORDER = ['STABLE', 'ACCEPTABLE', 'TOO_COLD', 'TOO_WARM'];
   const PROFILE_DEFINITIONS = {
@@ -193,6 +199,115 @@
       const stride = Math.max(1, Math.ceil(sensorEvents.length / perSensor));
       return sensorEvents.filter((_, index) => index % stride === 0).slice(0, perSensor);
     });
+  }
+
+  function localDateTimeToIso(value) {
+    const parsed = value instanceof Date ? new Date(value.getTime()) : new Date(String(value));
+    return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : '';
+  }
+
+  function getDateRange(preset, now = new Date(), custom = {}) {
+    const end = new Date(now.getTime());
+    let start = new Date(end.getTime());
+    if (preset === 'daily') {
+      start.setHours(0, 0, 0, 0);
+    } else if (preset === 'weekly') {
+      start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+      start.setHours(0, 0, 0, 0);
+    } else if (preset === 'monthly') {
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+    } else if (preset === 'custom') {
+      start = new Date(String(custom.start || ''));
+      const customEnd = new Date(String(custom.end || ''));
+      if (!Number.isFinite(start.getTime()) || !Number.isFinite(customEnd.getTime())) return null;
+      end.setTime(customEnd.getTime());
+    } else {
+      return null;
+    }
+    return { start: localDateTimeToIso(start), end: localDateTimeToIso(end) };
+  }
+
+  function convertTemperature(value, unit = 'C') {
+    if (value == null || String(value).trim() === '') return null;
+    const temperature = Number(value);
+    if (!Number.isFinite(temperature)) return null;
+    return String(unit).toUpperCase() === 'F' ? (temperature * 9 / 5) + 32 : temperature;
+  }
+
+  function formatTemperature(value, unit = 'C') {
+    const converted = convertTemperature(value, unit);
+    if (converted == null) return '—';
+    const normalizedUnit = String(unit).toUpperCase() === 'F' ? 'F' : 'C';
+    return `${converted.toFixed(1).replace('-', '−')}°${normalizedUnit}`;
+  }
+
+  function formatAxisTimestamp(value, options = {}) {
+    const parsed = new Date(String(value || ''));
+    if (!Number.isFinite(parsed.getTime())) return '—';
+    return new Intl.DateTimeFormat(options.locale || undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: options.timeZone || undefined,
+      timeZoneName: 'short',
+    }).format(parsed);
+  }
+
+  function movingAverage(values, windowSize = 3) {
+    const size = Math.max(1, Math.floor(Number(windowSize) || 1));
+    return values.map((value, index) => {
+      const window = values.slice(Math.max(0, index - size + 1), index + 1).filter(Number.isFinite);
+      return window.length ? window.reduce((sum, item) => sum + item, 0) / window.length : null;
+    });
+  }
+
+  function aggregateTemperatureSeries(events, selectedSensors = [], options = {}) {
+    const intervalAliases = { raw: 'raw', '15m': 'fifteen_minutes', hour: 'hourly', hourly: 'hourly', day: 'daily', daily: 'daily' };
+    const intervalKey = intervalAliases[options.interval || 'hourly'] || options.interval || 'hourly';
+    const interval = AGGREGATION_INTERVALS[intervalKey];
+    if (!interval) throw new Error(`Unsupported aggregation interval: ${intervalKey}`);
+    const sensors = selectedSensors.length
+      ? selectedSensors
+      : summarizeSensors(events).slice(0, 6).map((sensor) => sensor.sensorName);
+    const buckets = new Map();
+    sortedEvents(events).forEach((event) => {
+      if (!sensors.includes(event.sensor_name)) return;
+      const timestamp = timestampValue(event.timestamp);
+      const temperature = Number(event.temperature_c);
+      if (!timestamp || !Number.isFinite(temperature)) return;
+      const bucketTime = interval.milliseconds ? Math.floor(timestamp / interval.milliseconds) * interval.milliseconds : timestamp;
+      const bucket = buckets.get(bucketTime) || new Map();
+      const values = bucket.get(event.sensor_name) || [];
+      values.push(temperature);
+      bucket.set(event.sensor_name, values);
+      buckets.set(bucketTime, bucket);
+    });
+    const labels = Array.from(buckets.keys()).sort((left, right) => left - right).map((value) => new Date(value).toISOString());
+    const series = sensors.map((sensorName) => {
+      const values = labels.map((label) => {
+        const bucket = buckets.get(Date.parse(label));
+        const readings = bucket?.get(sensorName) || [];
+        return readings.length ? readings.reduce((sum, value) => sum + value, 0) / readings.length : null;
+      });
+      return {
+        sensorName,
+        values,
+        movingAverage: movingAverage(values, options.movingAverageWindow ?? 3),
+      };
+    });
+    const movingAverageWindow = Math.max(1, Math.floor(Number(options.movingAverageWindow ?? 3) || 3));
+    return {
+      interval: intervalKey,
+      intervalLabel: interval.label,
+      labels,
+      series,
+      definition: interval.milliseconds
+        ? `${interval.label} buckets; each value is the arithmetic mean of readings in that UTC ${intervalKey === 'daily' ? 'day' : intervalKey === 'hourly' ? 'hour' : '15-minute interval'}.`
+        : 'Raw readings; no aggregation is applied.',
+      movingAverageDefinition: `Trailing ${movingAverageWindow}-point moving average of aggregated interval means; the current point and up to ${movingAverageWindow - 1} prior points are averaged.`,
+    };
   }
 
   function getChartHeight(sensorCount) {
@@ -522,8 +637,15 @@
     PROFILE,
     SENSOR_TOLERANCE_C,
     PROFILE_DEFINITIONS,
+    AGGREGATION_INTERVALS,
     getProfile,
     normalizeEvent,
+    getDateRange,
+    convertTemperature,
+    formatTemperature,
+    formatAxisTimestamp,
+    movingAverage,
+    aggregateTemperatureSeries,
     STATUS_ORDER,
     classifyTemperature,
     classifyUncertainty,

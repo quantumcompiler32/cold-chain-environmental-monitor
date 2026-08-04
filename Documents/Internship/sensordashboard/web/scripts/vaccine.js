@@ -18,10 +18,17 @@
   let currentEndpoint = '/api/live';
   let responseScope = null;
   let activePodButton = null;
+  let temperatureUnit = 'C';
+  let aggregationInterval = 'hourly';
+  let movingAverageWindow = 3;
+  let connectionState = 'loading';
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
-  const formatC = (value) => Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}°C` : '—';
+  const formatC = (value) => data.formatTemperature(value, temperatureUnit);
+  const displayTemperature = (value) => data.convertTemperature(value, temperatureUnit);
+  const formatDisplayTemperature = (value) => Number.isFinite(Number(value)) ? `${Number(value).toFixed(1).replace('-', '−')}°${temperatureUnit}` : '—';
   const eventTimeValue = (value) => { const parsed = Date.parse(String(value || '').replace(' ', 'T')); return Number.isFinite(parsed) ? parsed : 0; };
   const statusLabel = (status) => ({ STABLE: 'Stable', ACCEPTABLE: 'Acceptable', TOO_COLD: 'Too cold', TOO_WARM: 'Too warm', UNKNOWN: 'No reading' }[status] || status);
   const operationalLabel = (status) => data.operationalStatusLabel(status);
@@ -75,8 +82,8 @@
     const margin = { top: 18, right: 8, bottom: 24, left: 38 };
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
-    const values = points.map((event) => Number(event.temperature_c)).filter(Number.isFinite);
-    const bounds = [profile.lowerLimitC, profile.upperLimitC, profile.targetC, ...values].filter(Number.isFinite);
+    const values = points.map((event) => displayTemperature(event.temperature_c)).filter(Number.isFinite);
+    const bounds = [displayTemperature(profile.lowerLimitC), displayTemperature(profile.upperLimitC), displayTemperature(profile.targetC), ...values].filter(Number.isFinite);
     const rawMin = Math.min(...bounds, -80);
     const rawMax = Math.max(...bounds, -60);
     const padding = Math.max(1, (rawMax - rawMin) * 0.08);
@@ -84,19 +91,19 @@
     const max = rawMax + padding;
     const x = (index) => margin.left + (points.length <= 1 ? plotWidth / 2 : index * plotWidth / (points.length - 1));
     const y = (value) => margin.top + (max - value) * plotHeight / (max - min);
-    const path = points.map((event, index) => `${index ? 'L' : 'M'}${x(index).toFixed(1)},${y(Number(event.temperature_c)).toFixed(1)}`).join(' ');
+    const path = points.map((event, index) => `${index ? 'L' : 'M'}${x(index).toFixed(1)},${y(displayTemperature(Number(event.temperature_c))).toFixed(1)}`).join(' ');
     const yTicks = [];
-    [profile.upperLimitC, profile.targetC, profile.lowerLimitC]
+    [profile.upperLimitC, profile.targetC, profile.lowerLimitC].map(displayTemperature)
       .filter((value, index, list) => Number.isFinite(value) && list.indexOf(value) === index && value >= min && value <= max)
       .sort((left, right) => right - left)
       .forEach((tick) => {
         if (yTicks.every((existing) => Math.abs(y(existing) - y(tick)) >= 15)) yTicks.push(tick);
       });
-    const grid = yTicks.map((tick) => `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(tick).toFixed(1)}" y2="${y(tick).toFixed(1)}" stroke="${tick === profile.targetC ? 'rgba(251,191,36,.45)' : 'rgba(255,255,255,.12)'}" stroke-dasharray="${tick === profile.targetC ? '2 3' : '4 4'}"/><text x="${margin.left - 6}" y="${(y(tick) + 3).toFixed(1)}" text-anchor="end" fill="#9ca3af" font-size="9">${Number(tick).toFixed(0)}°</text>`).join('');
+    const grid = yTicks.map((tick) => `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(tick).toFixed(1)}" y2="${y(tick).toFixed(1)}" stroke="${tick === displayTemperature(profile.targetC) ? 'rgba(251,191,36,.45)' : 'rgba(255,255,255,.12)'}" stroke-dasharray="${tick === displayTemperature(profile.targetC) ? '2 3' : '4 4'}"/><text x="${margin.left - 6}" y="${(y(tick) + 3).toFixed(1)}" text-anchor="end" fill="#9ca3af" font-size="9">${esc(formatDisplayTemperature(tick))}</text>`).join('');
     const firstTime = points[0] ? eventTimeValue(points[0].timestamp) : null;
     const lastTime = points.at(-1) ? eventTimeValue(points.at(-1).timestamp) : null;
     const elapsedMinutes = firstTime != null && lastTime != null ? Math.max(0, Math.round((lastTime - firstTime) / 60000)) : 0;
-    const axis = `<line x1="${margin.left}" x2="${width - margin.right}" y1="${height - margin.bottom}" y2="${height - margin.bottom}" stroke="rgba(255,255,255,.2)"/><text x="${margin.left}" y="${height - 7}" fill="#6b7280" font-size="9">-${elapsedMinutes}m</text><text x="${width - margin.right}" y="${height - 7}" text-anchor="end" fill="#6b7280" font-size="9">now</text><text x="${width / 2}" y="${height - 7}" text-anchor="middle" fill="#6b7280" font-size="9">time</text><text x="10" y="${height / 2}" text-anchor="middle" transform="rotate(-90 10 ${height / 2})" fill="#6b7280" font-size="9">°C</text>`;
+    const axis = `<line x1="${margin.left}" x2="${width - margin.right}" y1="${height - margin.bottom}" y2="${height - margin.bottom}" stroke="rgba(255,255,255,.2)"/><text x="${margin.left}" y="${height - 7}" fill="#6b7280" font-size="9">-${elapsedMinutes}m</text><text x="${width - margin.right}" y="${height - 7}" text-anchor="end" fill="#6b7280" font-size="9">now</text><text x="${width / 2}" y="${height - 7}" text-anchor="middle" fill="#6b7280" font-size="9">time · ${esc(timeZone)}</text><text x="10" y="${height / 2}" text-anchor="middle" transform="rotate(-90 10 ${height / 2})" fill="#6b7280" font-size="9">°${temperatureUnit}</text>`;
     const line = path ? `<path d="${path}" fill="none" stroke="${summary.trendKey === 'rapid_warming' || summary.trendKey === 'too_warm' ? '#fb7185' : summary.trendKey === 'rapid_cooling' || summary.trendKey === 'too_cold' ? '#60a5fa' : '#c4b5fd'}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` : '';
     const empty = points.length ? '' : `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" fill="#6b7280" font-size="10">Waiting for trend data</text>`;
     return `<svg class="pod-mini-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(summary.trendMessage)} over the last ${summary.chartWindowMinutes} minutes"><text x="${margin.left}" y="10" fill="#9ca3af" font-size="9">${summary.chartWindowMinutes} min context</text>${grid}${axis}${line}${empty}</svg>`;
@@ -154,7 +161,7 @@
   function formatDateTime(value) {
     if (!value) return '—';
     const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString([], { dateStyle: 'medium', timeStyle: 'medium' });
+    return Number.isNaN(parsed.getTime()) ? String(value) : new Intl.DateTimeFormat([], { dateStyle: 'medium', timeStyle: 'medium', timeZoneName: 'short', timeZone }).format(parsed);
   }
 
   function openPodDetails(sensorName) {
@@ -213,21 +220,42 @@
     return `${currentEndpoint.startsWith('/api/live') ? 'Live' : 'Historical'} · ${start} → ${end}`;
   }
 
+  function renderAnalyticsState() {
+    const target = $('analyticsState');
+    if (!target) return;
+    target.className = `analytics-state ${connectionState}`;
+    if (connectionState === 'loading') target.textContent = 'Loading persisted PostgreSQL readings…';
+    else if (connectionState === 'error') target.textContent = 'Unable to load persisted readings. Check the PostgreSQL bridge and try again.';
+    else if (!events.length) target.textContent = 'No temperature readings match the selected scope.';
+    else target.textContent = `${events.length.toLocaleString()} persisted temperature reading${events.length === 1 ? '' : 's'} loaded.`;
+  }
+
+  function currentFilters() {
+    const filters = {};
+    [['start', 'filterStart'], ['end', 'filterEnd'], ['pod', 'filterPod'], ['vaccine', 'filterVaccine'], ['batch', 'filterBatch'], ['scenario', 'filterScenario'], ['severity', 'filterSeverity']].forEach(([name, id]) => {
+      const value = $(id)?.value;
+      if (value) filters[name] = id === 'filterStart' || id === 'filterEnd' ? new Date(value).toISOString() : value;
+    });
+    return filters;
+  }
+
   function restartWatch(path = '/api/live/stream') {
     if (stopWatching) stopWatching();
     currentEndpoint = path;
+    connectionState = 'loading';
+    renderAnalyticsState();
     stopWatching = bridge.watchDatabase(
       (rawEvents, payload) => {
         events = rawEvents.map((event) => data.normalizeEvent(event));
         responseScope = payload?.scope || null;
-        dataLabel = events.length.toLocaleString() + ' persisted PostgreSQL event' + (events.length === 1 ? '' : 's');
+        connectionState = events.length ? 'ready' : 'empty';
         populateFilterOptions();
         setBridgeState(true, path.startsWith('/api/live') ? 'Live PostgreSQL connected' : 'Historical PostgreSQL connected');
         render();
       },
       (error) => {
         events = [];
-        dataLabel = 'PostgreSQL unavailable';
+        connectionState = 'error';
         setBridgeState(false, 'PostgreSQL unavailable');
         render();
         showToast(error.message);
@@ -250,24 +278,20 @@
       restartWatch('/api/live/stream');
       return;
     }
-    const end = new Date();
-    const start = new Date(end);
-    if (range === 'today') start.setHours(0, 0, 0, 0);
-    if (range === '6h') start.setHours(start.getHours() - 6);
-    if (range === '24h') start.setHours(start.getHours() - 24);
-    if (range === 'week') { start.setDate(start.getDate() - ((start.getDay() + 6) % 7)); start.setHours(0, 0, 0, 0); }
-    if (range === 'month') { start.setDate(1); start.setHours(0, 0, 0, 0); }
-    $('filterStart').value = inputDate(start);
-    $('filterEnd').value = inputDate(end);
+    const rangeValues = range === 'custom'
+      ? data.getDateRange('custom', new Date(), { start: $('filterStart').value, end: $('filterEnd').value })
+      : data.getDateRange(range, new Date());
+    if (!rangeValues) {
+      showToast('Choose both a start and end date for a custom range.');
+      return;
+    }
+    $('filterStart').value = inputDate(new Date(rangeValues.start));
+    $('filterEnd').value = inputDate(new Date(rangeValues.end));
     applyFilters();
   }
 
   function applyFilters() {
-    const params = new URLSearchParams();
-    [['start', 'filterStart'], ['end', 'filterEnd'], ['pod', 'filterPod'], ['vaccine', 'filterVaccine'], ['batch', 'filterBatch'], ['scenario', 'filterScenario'], ['severity', 'filterSeverity']].forEach(([name, id]) => {
-      const value = $(id)?.value;
-      if (value) params.set(name, id === 'filterStart' || id === 'filterEnd' ? new Date(value).toISOString() : value);
-    });
+    const params = new URLSearchParams(currentFilters());
     restartWatch('/api/events' + (params.toString() ? `?${params.toString()}` : ''));
   }
 
@@ -283,6 +307,8 @@
     const warmest = summaries.reduce((best, sensor) => !best || sensor.latestTemperatureC > best.latestTemperatureC ? sensor : best, null);
     const coldest = summaries.reduce((best, sensor) => !best || sensor.latestTemperatureC < best.latestTemperatureC ? sensor : best, null);
     const latestEvent = sorted(events).at(-1);
+    const numericTemperatures = events.map((event) => Number(event.temperature_c)).filter(Number.isFinite);
+    const periodAverage = numericTemperatures.length ? numericTemperatures.reduce((sum, value) => sum + value, 0) / numericTemperatures.length : null;
     const borderline = events.filter((event) => String(event.uncertainty_status || '').startsWith('BORDERLINE')).length;
     $('kpiInRange').textContent = `${inRange}/${summaries.length}`;
     $('kpiInRangeDetail').textContent = inRange === summaries.length ? 'All package sensors acceptable' : `${summaries.length - inRange} sensor${summaries.length - inRange === 1 ? '' : 's'} outside range`;
@@ -291,9 +317,13 @@
     $('kpiColdest').textContent = formatC(coldest?.latestTemperatureC);
     $('kpiColdestDetail').textContent = coldest ? `${coldest.sensorName} · ${statusLabel(coldest.status)}` : 'No readings';
     $('kpiEvents').textContent = events.length.toLocaleString();
-    $('kpiEventsDetail').textContent = latestEvent ? `Latest event ${new Date(latestEvent.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'No readings';
+    $('kpiEventsDetail').textContent = latestEvent ? `Latest recorded ${formatDateTime(latestEvent.event_time || latestEvent.timestamp)}` : 'No readings';
+    $('kpiPeriodAverage').textContent = formatC(periodAverage);
+    $('kpiPeriodAverageDetail').textContent = periodAverage == null ? 'No readings in scope' : `${events.length.toLocaleString()} readings in selected period`;
     $('kpiBorderline').textContent = borderline.toLocaleString();
     $('kpiBorderlineDetail').textContent = borderline ? 'Possible storage-boundary overlap' : 'No boundary overlap detected';
+    const updatedEvent = events.slice().sort((left, right) => eventTimeValue(left.stored_at || left.received_at || left.event_time || left.timestamp) - eventTimeValue(right.stored_at || right.received_at || right.event_time || right.timestamp)).at(-1);
+    $('lastUpdated').textContent = updatedEvent ? `Last updated ${formatDateTime(updatedEvent.stored_at || updatedEvent.received_at || updatedEvent.event_time || updatedEvent.timestamp)}` : 'Last updated —';
   }
 
   function renderAttention(summaries) {
@@ -335,43 +365,58 @@
 
   function renderTemperatureChart() {
     const target = $('temperatureChart');
-    const chart = data.buildChartSeries(events, selectedSensors, { maxPoints: 180 });
+    const chart = data.aggregateTemperatureSeries(events, selectedSensors, { interval: aggregationInterval, movingAverageWindow });
     const width = Math.max(target.clientWidth || 620, 320);
     const height = 340;
     target.style.height = `${height}px`;
+    if (!chart.labels.length) {
+      target.innerHTML = '<div class="chart-empty" role="status">No temperature readings in this scope.</div>';
+      return;
+    }
     const margin = { top: 14, right: 12, bottom: 28, left: 40 };
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
-    const observed = chart.series.flatMap((series) => series.values).filter(Number.isFinite);
-    const observedMin = observed.length ? Math.min(...observed) : profile.targetC;
-    const observedMax = observed.length ? Math.max(...observed) : profile.targetC;
+    const observed = chart.series.flatMap((series) => series.values).filter(Number.isFinite).map(displayTemperature).filter(Number.isFinite);
+    const observedMin = observed.length ? Math.min(...observed) : displayTemperature(profile.targetC);
+    const observedMax = observed.length ? Math.max(...observed) : displayTemperature(profile.targetC);
     const observedSpan = Math.max(observedMax - observedMin, 0.2);
-    const padding = Math.max(0.35, observedSpan * 0.25);
+    const padding = Math.max(temperatureUnit === 'F' ? 0.6 : 0.35, observedSpan * 0.25);
     let min = observedMin - padding;
     let max = observedMax + padding;
-    const thresholds = [profile.lowerLimitC, profile.upperLimitC, profile.targetC];
+    const thresholds = [profile.lowerLimitC, profile.upperLimitC, profile.targetC].map(displayTemperature);
     thresholds.forEach((threshold) => {
-      const closeToData = threshold >= observedMin - 3 && threshold <= observedMax + 3;
-      const nearestViolatedBoundary = observedMax < profile.lowerLimitC ? threshold === profile.lowerLimitC : observedMin > profile.upperLimitC ? threshold === profile.upperLimitC : false;
+      const closeToData = threshold >= observedMin - (temperatureUnit === 'F' ? 5 : 3) && threshold <= observedMax + (temperatureUnit === 'F' ? 5 : 3);
+      const nearestViolatedBoundary = observedMax < displayTemperature(profile.lowerLimitC) ? threshold === displayTemperature(profile.lowerLimitC) : observedMin > displayTemperature(profile.upperLimitC) ? threshold === displayTemperature(profile.upperLimitC) : false;
       if (closeToData || nearestViolatedBoundary) {
         min = Math.min(min, threshold - padding * 0.2);
         max = Math.max(max, threshold + padding * 0.2);
       }
     });
-    const x = (index) => margin.left + (chart.labels.length <= 1 ? plotWidth / 2 : index * plotWidth / (chart.labels.length - 1));
+    const timestamps = chart.labels.map((label) => Date.parse(label));
+    const firstTimestamp = timestamps[0];
+    const lastTimestamp = timestamps.at(-1);
+    const x = (index) => margin.left + (chart.labels.length <= 1 || lastTimestamp === firstTimestamp ? plotWidth / 2 : (timestamps[index] - firstTimestamp) * plotWidth / (lastTimestamp - firstTimestamp));
     const y = (value) => margin.top + (max - value) * plotHeight / (max - min);
     const yTicks = Array.from({ length: 7 }, (_, index) => min + (max - min) * index / 6).reverse();
     const xTicks = chart.labels.map((label, index) => ({ label, index })).filter((_, index) => index === 0 || index === chart.labels.length - 1 || index % Math.max(1, Math.floor(chart.labels.length / 5)) === 0);
-    const grid = yTicks.map((tick) => `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(tick)}" y2="${y(tick)}" stroke="rgba(255,255,255,.06)"/><text x="${margin.left - 8}" y="${y(tick) + 3}" text-anchor="end" fill="#6b7280" font-size="10">${tick.toFixed(1)}°</text>`).join('');
-    const labels = xTicks.map(({ label, index }) => `<text x="${x(index)}" y="${height - 7}" text-anchor="middle" fill="#6b7280" font-size="10">${esc(new Date(label).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}</text>`).join('');
-    const lines = chart.series.map((series, index) => `<path d="${linePath(series.values, x, y)}" fill="none" stroke="${COLORS[index % COLORS.length]}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`).join('');
-    const bandTop = Math.min(max, profile.upperLimitC);
-    const bandBottom = Math.max(min, profile.lowerLimitC);
+    const grid = yTicks.map((tick) => `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(tick)}" y2="${y(tick)}" stroke="rgba(255,255,255,.06)"/><text x="${margin.left - 8}" y="${y(tick) + 3}" text-anchor="end" fill="#6b7280" font-size="10">${esc(formatDisplayTemperature(tick))}</text>`).join('');
+    const labels = xTicks.map(({ label, index }) => `<text x="${x(index)}" y="${height - 7}" text-anchor="middle" fill="#6b7280" font-size="10">${esc(data.formatAxisTimestamp(label, { timeZone }))}</text>`).join('');
+    const lines = chart.series.map((series, index) => {
+      const color = COLORS[index % COLORS.length];
+      const values = series.values.map(displayTemperature);
+      const average = series.movingAverage.map(displayTemperature);
+      return `<path d="${linePath(values, x, y)}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><title>${esc(series.sensorName)} interval means</title></path><path d="${linePath(average, x, y)}" fill="none" stroke="${color}" stroke-opacity=".72" stroke-width="1.5" stroke-dasharray="5 3"><title>${esc(series.sensorName)} ${chart.movingAverageDefinition}</title></path>`;
+    }).join('');
+    const lowerLimit = displayTemperature(profile.lowerLimitC);
+    const upperLimit = displayTemperature(profile.upperLimitC);
+    const targetValue = displayTemperature(profile.targetC);
+    const bandTop = Math.min(max, upperLimit);
+    const bandBottom = Math.max(min, lowerLimit);
     const band = bandBottom > bandTop ? `<rect x="${margin.left}" y="${y(bandTop)}" width="${plotWidth}" height="${y(bandBottom) - y(bandTop)}" fill="rgba(16,185,129,.1)"/>` : '';
-    const lowerLine = profile.lowerLimitC >= min && profile.lowerLimitC <= max ? `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(profile.lowerLimitC)}" y2="${y(profile.lowerLimitC)}" stroke="rgba(96,165,250,.65)" stroke-dasharray="4 4"/>` : '';
-    const upperLine = profile.upperLimitC >= min && profile.upperLimitC <= max ? `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(profile.upperLimitC)}" y2="${y(profile.upperLimitC)}" stroke="rgba(239,68,68,.65)" stroke-dasharray="4 4"/>` : '';
-    const targetLine = profile.targetC >= min && profile.targetC <= max ? `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(profile.targetC)}" y2="${y(profile.targetC)}" stroke="#fbbf24" stroke-dasharray="2 4"/>` : '';
-    target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Selected package temperature trend">${band}${lowerLine}${upperLine}${targetLine}${grid}${lines}${labels}</svg>`;
+    const lowerLine = lowerLimit >= min && lowerLimit <= max ? `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(lowerLimit)}" y2="${y(lowerLimit)}" stroke="rgba(96,165,250,.65)" stroke-dasharray="4 4"/>` : '';
+    const upperLine = upperLimit >= min && upperLimit <= max ? `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(upperLimit)}" y2="${y(upperLimit)}" stroke="rgba(239,68,68,.65)" stroke-dasharray="4 4"/>` : '';
+    const targetLine = targetValue >= min && targetValue <= max ? `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(targetValue)}" y2="${y(targetValue)}" stroke="#fbbf24" stroke-dasharray="2 4"/>` : '';
+    target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Selected package temperature trend in ${temperatureUnit === 'C' ? 'Celsius' : 'Fahrenheit'}; x-axis timestamps shown in ${esc(timeZone)}">${band}${lowerLine}${upperLine}${targetLine}${grid}${lines}${labels}</svg>`;
   }
 
   function renderStatusBars(summaries) {
@@ -379,7 +424,7 @@
     const total = Math.max(summaries.length, 1);
     const colors = { STABLE: '#10b981', ACCEPTABLE: '#34d399', TOO_COLD: '#60a5fa', TOO_WARM: '#ef4444', UNKNOWN: '#6b7280' };
     $('healthSummary').innerHTML = `<strong>${summaries.filter((sensor) => sensor.status === 'STABLE' || sensor.status === 'ACCEPTABLE').length}/${summaries.length}</strong><span>package sensors in range</span>`;
-    $('statusBars').innerHTML = data.STATUS_ORDER.concat(Object.keys(counts).filter((key) => !data.STATUS_ORDER.includes(key))).map((status) => `<div class="status-bar-row"><label>${statusLabel(status)}</label><div class="status-bar-track"><div class="status-bar-fill" style="width:${((counts[status] || 0) / total) * 100}%;background:${colors[status] || '#6b7280'}"></div></div><span class="status-count">${counts[status] || 0}</span></div>`).join('');
+    $('statusBars').innerHTML = data.STATUS_ORDER.concat(Object.keys(counts).filter((key) => !data.STATUS_ORDER.includes(key))).map((status) => `<div class="status-bar-row" role="status" aria-label="${esc(statusLabel(status))}: ${counts[status] || 0}"><label>${statusLabel(status)}</label><div class="status-bar-track"><div class="status-bar-fill" style="width:${((counts[status] || 0) / total) * 100}%;background:${colors[status] || '#6b7280'}"></div></div><span class="status-count">${counts[status] || 0}</span></div>`).join('');
   }
 
   function renderBars(target, values, colors, formatter) {
@@ -482,7 +527,8 @@
   function renderTable(summaries) {
     $('sensorTable').innerHTML = summaries.map((sensor) => {
       const scenario = sensor.latestPhase ? `${sensor.latestScenario} · ${sensor.latestPhase}` : sensor.latestScenario;
-      return '<tr><td class="sensor-name">' + esc(sensor.sensorName) + '</td><td class="temp">' + formatC(sensor.latestTemperatureC) + '</td><td><span class="condition ' + statusClass(sensor.status) + '">' + statusLabel(sensor.status) + '</span></td><td class="muted-cell">' + esc(scenario) + '</td><td class="muted-cell">' + sensor.readingCount + '</td><td><button class="row-action" type="button" data-focus-sensor="' + esc(sensor.sensorName) + '">View trend</button></td></tr>';
+      const condition = statusLabel(sensor.status);
+      return '<tr><td class="sensor-name">' + esc(sensor.sensorName) + '</td><td class="temp">' + formatC(sensor.latestTemperatureC) + '</td><td class="temp">' + formatC(sensor.averageTemperatureC) + '</td><td><span role="status" aria-label="Condition: ' + esc(condition) + '" class="condition ' + statusClass(sensor.status) + '">' + condition + '</span></td><td class="muted-cell">' + esc(scenario) + '</td><td class="muted-cell">' + sensor.readingCount + '</td><td><button class="row-action" type="button" data-focus-sensor="' + esc(sensor.sensorName) + '">View trend</button></td></tr>';
     }).join('');
     $('sensorTable').querySelectorAll('[data-focus-sensor]').forEach((button) => button.addEventListener('click', () => {
       selectedSensors = [button.dataset.focusSensor, ...selectedSensors.filter((sensor) => sensor !== button.dataset.focusSensor)].slice(0, 6);
@@ -505,17 +551,29 @@
     renderTable(summaries);
     const borderline = events.filter((event) => String(event.uncertainty_status || '').startsWith('BORDERLINE')).length;
     const crossing = events.filter((event) => event.boundary_crossing).length;
-    $('uncertaintySummary').textContent = '±' + data.SENSOR_TOLERANCE_C.toFixed(1) + '°C Type-T accuracy';
+    renderAnalyticsState();
+    const toleranceDisplay = Math.abs(displayTemperature(data.SENSOR_TOLERANCE_C) - displayTemperature(0));
+    $('uncertaintySummary').textContent = '±' + toleranceDisplay.toFixed(1) + '°' + temperatureUnit + ' Type-T accuracy';
     $('uncertaintyCopy').textContent = borderline.toLocaleString() + ' borderline reading' + (borderline === 1 ? '' : 's') + ' and ' + crossing.toLocaleString() + ' possible boundary crossing' + (crossing === 1 ? '' : 's') + ' in the stored database events.';
     $('dataMode').textContent = dataLabel;
     $('modePill').textContent = 'POSTGRESQL';
     $('profileName').textContent = profileIds.length > 1 ? 'Multiple vaccine profiles' : profile.label;
     $('profileTarget').textContent = profileIds.length > 1 ? 'Profile-specific' : formatC(profile.targetC);
     $('profileRange').textContent = profileIds.length > 1 ? 'Profile-specific' : rangeText();
-    $('trendSub').textContent = selectedSensors.length + ' sensor' + (selectedSensors.length === 1 ? '' : 's') + ' selected · persisted database readings';
-    $('chartHelp').textContent = 'Choose sensors below';
+    $('trendSub').textContent = selectedSensors.length + ' sensor' + (selectedSensors.length === 1 ? '' : 's') + ' selected · ' + aggregationDefinitionText() + ' · ' + movingAverageWindow + '-point trailing moving average · ' + timeZone;
+    $('chartHelp').textContent = 'Timezone: ' + timeZone;
     $('targetLegend').textContent = 'Target ' + formatC(profile.targetC);
     $('effectiveRange').textContent = scopeText(responseScope);
+  }
+
+  function aggregationIntervalLabel() {
+    return data.AGGREGATION_INTERVALS[aggregationInterval]?.label || aggregationInterval;
+  }
+
+  function aggregationDefinitionText() {
+    return aggregationInterval === 'raw'
+      ? 'Raw readings'
+      : `${aggregationIntervalLabel()} buckets are arithmetic means of readings in each UTC interval`;
   }
 
   function queueRender() {
@@ -534,11 +592,24 @@
 
   $('exportButton').addEventListener('click', async () => {
     try {
-      await bridge.exportAllEvents();
-      showToast('Exported all PostgreSQL events.');
+      await bridge.exportAllEvents(currentFilters());
+      showToast(Object.keys(currentFilters()).length ? 'Exported the filtered PostgreSQL events as CSV.' : 'Exported all PostgreSQL events as CSV.');
     } catch (error) {
       showToast(error.message);
     }
+  });
+
+  $('temperatureUnit').addEventListener('change', (event) => {
+    temperatureUnit = event.target.value === 'F' ? 'F' : 'C';
+    render();
+  });
+  $('aggregationInterval').addEventListener('change', (event) => {
+    aggregationInterval = event.target.value;
+    render();
+  });
+  $('movingAverageWindow').addEventListener('change', (event) => {
+    movingAverageWindow = Math.max(1, Number(event.target.value) || 3);
+    render();
   });
 
   document.querySelectorAll('[data-range]').forEach((button) => button.addEventListener('click', () => applyRange(button.dataset.range)));

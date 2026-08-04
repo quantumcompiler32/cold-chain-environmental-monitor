@@ -1,22 +1,35 @@
-(function exposeVaccineBridge(global) {
+(function exposeVaccineBridge(global, factory) {
+  const api = factory(global);
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  if (global) global.VaccineBridge = api;
+})(typeof globalThis === 'undefined' ? this : globalThis, function vaccineBridgeFactory(global) {
   const BRIDGE_URL = 'http://127.0.0.1:8787';
 
+  function buildExportPath(filters = {}) {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value != null && String(value) !== '') params.set(key, String(value));
+    });
+    const query = params.toString();
+    return `/api/events/export.csv${query ? `?${query}` : ''}`;
+  }
+
   async function request(path) {
-    const response = await fetch(`${BRIDGE_URL}${path}`, { cache: 'no-store' });
+    const response = await global.fetch(`${BRIDGE_URL}${path}`, { cache: 'no-store' });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `Dashboard adapter returned ${response.status}`);
     return payload;
   }
 
-  async function exportAllEvents() {
-    const response = await fetch(`${BRIDGE_URL}/api/events/export.csv`, { cache: 'no-store' });
+  async function exportAllEvents(filters = {}) {
+    const response = await global.fetch(`${BRIDGE_URL}${buildExportPath(filters)}`, { cache: 'no-store' });
     if (!response.ok) throw new Error('CSV export is unavailable while PostgreSQL is offline.');
     const blob = await response.blob();
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
+    const link = global.document.createElement('a');
+    link.href = global.URL.createObjectURL(blob);
     link.download = 'temperature_events.csv';
     link.click();
-    URL.revokeObjectURL(link.href);
+    global.URL.revokeObjectURL(link.href);
   }
 
   function sortEvents(events) {
@@ -27,7 +40,7 @@
   }
 
   function watchEventStream(onEvents, onError, path) {
-    const eventSource = new EventSource(`${BRIDGE_URL}${path}`);
+    const eventSource = new global.EventSource(`${BRIDGE_URL}${path}`);
     const eventsById = new Map();
     let active = true;
     const publish = (payload) => {
@@ -82,5 +95,5 @@
     };
   }
 
-  global.VaccineBridge = { request, exportAllEvents, watchDatabase };
-})(typeof globalThis === 'undefined' ? this : globalThis);
+  return { request, exportAllEvents, watchDatabase, buildExportPath };
+});

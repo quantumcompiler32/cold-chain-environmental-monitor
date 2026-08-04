@@ -21,8 +21,9 @@
           <p>Analyze persisted vaccine events, pod health, scenarios, and temperature trends. The event pipeline runs independently in the terminal.</p>
         </div>
         <div class="header-actions">
-          <button class="button secondary" id="exportButton" type="button">Export PostgreSQL CSV</button>
-          <span class="bridge-status offline" id="bridgeStatus"><i></i>PostgreSQL unavailable</span>
+          <button class="button secondary" id="exportButton" type="button">Export filtered CSV</button>
+          <span class="bridge-status offline" id="bridgeStatus" role="status" aria-live="polite"><i></i>PostgreSQL unavailable</span>
+          <span class="last-updated" id="lastUpdated" role="status" aria-live="polite">Last updated —</span>
         </div>
       </header>
 
@@ -34,23 +35,25 @@
         <div class="filter-row preset-row" role="group" aria-label="Time presets">
           <button class="filter-preset active" type="button" data-range="live">Live</button>
           <button class="filter-preset" type="button" data-range="6h">Last 6 hours</button>
-          <button class="filter-preset" type="button" data-range="today">Today</button>
-          <button class="filter-preset" type="button" data-range="24h">Last 24 hours</button>
-          <button class="filter-preset" type="button" data-range="week">This week</button>
-          <button class="filter-preset" type="button" data-range="month">This month</button>
+          <button class="filter-preset" type="button" data-range="daily">Daily</button>
+          <button class="filter-preset" type="button" data-range="weekly">Weekly</button>
+          <button class="filter-preset" type="button" data-range="monthly">Monthly</button>
+          <button class="filter-preset" type="button" data-range="custom">Custom dates</button>
         </div>
         <div class="filter-row">
-          <label>Start <input id="filterStart" type="datetime-local"></label>
-          <label>End <input id="filterEnd" type="datetime-local"></label>
-          <label>Pod <select id="filterPod"><option value="">All Pods</option></select></label>
-          <label>Vaccine <select id="filterVaccine"><option value="">All vaccines</option></select></label>
-          <label>Batch <input id="filterBatch" type="text" placeholder="Any batch"></label>
-          <label>Scenario <select id="filterScenario"><option value="">All scenarios</option><option value="normal">Normal</option><option value="warning">Warning</option><option value="recovery">Recovery</option><option value="mixed">Mixed</option><option value="outlier">Outlier</option></select></label>
-          <label>Severity <select id="filterSeverity"><option value="">All severities</option><option value="info">Info</option><option value="warning">Warning</option><option value="critical">Critical</option></select></label>
+          <label for="filterStart">Start <input id="filterStart" type="datetime-local"></label>
+          <label for="filterEnd">End <input id="filterEnd" type="datetime-local"></label>
+          <label for="filterPod">Pod <select id="filterPod"><option value="">All Pods</option></select></label>
+          <label for="filterVaccine">Vaccine <select id="filterVaccine"><option value="">All vaccines</option></select></label>
+          <label for="filterBatch">Batch <input id="filterBatch" type="text" placeholder="Any batch"></label>
+          <label for="filterScenario">Scenario <select id="filterScenario"><option value="">All scenarios</option><option value="normal">Normal</option><option value="warning">Warning</option><option value="recovery">Recovery</option><option value="mixed">Mixed</option><option value="outlier">Outlier</option></select></label>
+          <label for="filterSeverity">Severity <select id="filterSeverity"><option value="">All severities</option><option value="info">Info</option><option value="warning">Warning</option><option value="critical">Critical</option></select></label>
           <button class="button primary filter-apply" id="applyFilters" type="button">Apply filters</button>
           <button class="button secondary" id="clearFilters" type="button">Clear</button>
         </div>
       </section>
+
+      <div class="analytics-state" id="analyticsState" role="status" aria-live="polite" aria-atomic="true">Loading persisted PostgreSQL readings…</div>
 
       <section class="card pod-monitor-card" aria-label="Pod heatmap">
         <div class="card-heading">
@@ -82,15 +85,16 @@
         <article class="kpi-card" style="--kpi-color:#f59e0b"><div class="kpi-label">Warmest package</div><div class="kpi-value" id="kpiWarmest">—</div><div class="kpi-delta" id="kpiWarmestDetail">—</div></article>
         <article class="kpi-card" style="--kpi-color:#3b82f6"><div class="kpi-label">Coldest package</div><div class="kpi-value" id="kpiColdest">—</div><div class="kpi-delta" id="kpiColdestDetail">—</div></article>
         <article class="kpi-card" style="--kpi-color:#8b5cf6"><div class="kpi-label">Temperature events</div><div class="kpi-value" id="kpiEvents">—</div><div class="kpi-delta" id="kpiEventsDetail">Latest event —</div></article>
+        <article class="kpi-card" style="--kpi-color:#06b6d4"><div class="kpi-label">Period average</div><div class="kpi-value" id="kpiPeriodAverage">—</div><div class="kpi-delta" id="kpiPeriodAverageDetail">Filtered readings</div></article>
         <article class="kpi-card" style="--kpi-color:#ec4899"><div class="kpi-label">Borderline readings</div><div class="kpi-value" id="kpiBorderline">—</div><div class="kpi-delta" id="kpiBorderlineDetail">Possible boundary overlap</div></article>
       </section>
 
       <section class="grid-2 chart-grid">
         <article class="card chart-card chart-card-wide" id="trendCard">
-          <div class="card-heading"><div><div class="card-title">Package temperature trend</div><div class="card-sub" id="trendSub">Demo sensors selected · focused on observed variation</div></div><span class="chart-help" id="chartHelp">Choose sensors below</span></div>
+          <div class="card-heading"><div><div class="card-title">Package temperature trend</div><div class="card-sub" id="trendSub">Demo sensors selected · focused on observed variation</div></div><div class="chart-options"><span class="chart-help" id="chartHelp">Timezone: local</span><label for="temperatureUnit">Units <select id="temperatureUnit"><option value="C">Celsius (°C)</option><option value="F">Fahrenheit (°F)</option></select></label><label for="aggregationInterval">Interval <select id="aggregationInterval"><option value="raw">Raw readings</option><option value="fifteen_minutes">15-minute</option><option value="hourly" selected>Hourly</option><option value="daily">Daily</option></select></label><label for="movingAverageWindow">Moving average <select id="movingAverageWindow"><option value="3" selected>3-point trailing</option><option value="5">5-point trailing</option></select></label></div></div>
           <div class="sensor-picker" id="sensorPicker" aria-label="Select package sensors"></div>
           <div class="chart-wrap vaccine-chart" id="temperatureChart" aria-label="Temperature trend chart"></div>
-          <div class="chart-legend"><span><i class="legend-line stable-line"></i>Temperature</span><span><i class="legend-band"></i>Suggested range</span><span><i class="legend-line target-line"></i><span id="targetLegend">Target −78.5°C</span></span></div>
+          <div class="chart-legend"><span><i class="legend-line stable-line"></i>Interval mean</span><span><i class="legend-line moving-average-line"></i>Trailing moving average</span><span><i class="legend-band"></i>Suggested range</span><span><i class="legend-line target-line"></i><span id="targetLegend">Target −78.5°C</span></span></div>
         </article>
         <article class="card chart-card">
           <div class="card-title">Package health</div>
@@ -146,8 +150,8 @@
       </section>
 
       <section class="card sensor-card" id="sensorTableCard">
-        <div class="card-heading"><div><div class="card-title">All package sensors</div><div class="card-sub">Select a row to focus the trend chart. Values are calculated from persisted PostgreSQL events.</div></div><span class="table-hint">Pod1–Pod20</span></div>
-        <div class="table-wrap"><table class="unit-table"><thead><tr><th>Sensor</th><th>Latest</th><th>Condition</th><th>Scenario</th><th>Readings</th><th></th></tr></thead><tbody id="sensorTable"></tbody></table></div>
+        <div class="card-heading"><div><div class="card-title">All package sensors</div><div class="card-sub">Latest is the newest recorded reading. Period average is the arithmetic mean of readings in the selected scope.</div></div><span class="table-hint">Pod1–Pod20</span></div>
+        <div class="table-wrap"><table class="unit-table"><thead><tr><th>Sensor</th><th>Latest</th><th>Period average</th><th>Condition</th><th>Scenario</th><th>Readings</th><th></th></tr></thead><tbody id="sensorTable"></tbody></table></div>
       </section>
 
     </div>
@@ -168,9 +172,9 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="../scripts/vaccine-navigation.js?v=three-tabs-1"></script>
-  <script src="../scripts/vaccine-data.js?v=readonly-1"></script>
-  <script src="../scripts/vaccine-bridge.js?v=readonly-2"></script>
-  <script src="../scripts/vaccine.js?v=readonly-3"></script>
+  <script src="../scripts/vaccine-data.js?v=workstream-b-1"></script>
+  <script src="../scripts/vaccine-bridge.js?v=workstream-b-1"></script>
+  <script src="../scripts/vaccine.js?v=workstream-b-1"></script>
   <script src="../scripts/vaccine-analytics-prototype.js?v=analytics-prototype-3"></script>
 </body>
 </html>
