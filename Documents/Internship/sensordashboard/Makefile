@@ -2,10 +2,13 @@ PYTHON ?= .venv/bin/python
 APP_ENV ?= development
 LISTENER_OUTPUT_MODE ?= verbose
 
-.PHONY: test reset-demo reset-dashboard verify verify-fast train-models start-infrastructure start-listener start-ml-service run-scenario demo-all start-dashboard stop-demo
+.PHONY: test e2e reset-demo reset-dashboard verify verify-fast train-models start-infrastructure start-listener start-ml-service run-scenario demo-all start-dashboard stop-demo
 
 test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_*.py' -v
+
+e2e:
+	APP_ENV=test $(PYTHON) scripts/e2e_verify.py
 
 reset-demo:
 	@if [ "$(RESET_CONFIRM)" != "YES" ]; then echo "Refusing reset. Re-run with RESET_CONFIRM=YES and --confirm-reset is applied by this target."; exit 1; fi

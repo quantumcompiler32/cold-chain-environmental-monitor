@@ -6,3 +6,4 @@ __pycache__/
 .dashboard_uploads/
 models/*.pkl
 models/metadata.json
+test-reports/
