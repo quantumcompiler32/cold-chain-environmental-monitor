@@ -58,6 +58,7 @@ def format_event_block(
     lines = [
         title,
         f"  event_id      : {_value(event.get('event_id'))}",
+        f"  run_id        : {_value(event.get('run_id'))}",
         f"  device        : {_value(event.get('device_id'))}",
         f"  pod           : {_value(event.get('sensor_name'))}",
         f"  vaccine       : {_value(event.get('vaccine_type'))}",

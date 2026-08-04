@@ -5,6 +5,7 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS telemetry_logs (
     id BIGSERIAL PRIMARY KEY,
     event_id UUID NOT NULL UNIQUE,
+    run_id VARCHAR(120),
     device_id VARCHAR(150) NOT NULL,
     topic VARCHAR(255) NOT NULL,
     event_time TIMESTAMPTZ NOT NULL,
@@ -19,6 +20,7 @@ CREATE TABLE IF NOT EXISTS telemetry_logs (
 
 CREATE TABLE IF NOT EXISTS vaccine_temperature_events (
     event_id UUID PRIMARY KEY REFERENCES telemetry_logs(event_id) ON DELETE CASCADE,
+    run_id VARCHAR(120),
     device_id VARCHAR(150) NOT NULL,
     sensor_name VARCHAR(100) NOT NULL,
     vaccine_type VARCHAR(80) NOT NULL,

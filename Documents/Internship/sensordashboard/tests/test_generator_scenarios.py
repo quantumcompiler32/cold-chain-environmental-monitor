@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pandas as pd
@@ -164,6 +165,35 @@ class GeneratorScenarioTests(unittest.TestCase):
             [event["sensor_name"] for event in fake_client.messages],
             ["Pod1", "Pod2", "Pod1", "Pod2"],
         )
+
+    def test_write_db_mode_does_not_also_publish_to_mqtt(self):
+        pod_readings = pd.DataFrame({"temperature_c": [-78.5]})
+        persisted = []
+
+        def fake_persist(event, **_kwargs):
+            persisted.append(event)
+            return SimpleNamespace(duplicate=False, stored_at=None)
+
+        with patch.object(
+            sys,
+            "argv",
+            ["generator", "--count", "1", "--interval-ms", "0", "--output-mode", "none", "--write-db", "--run-id", "run-direct"],
+        ), patch(
+            "services.temperature_event_generator.mqtt.Client",
+        ) as mqtt_client, patch(
+            "services.temperature_event_generator.load_temperature_data",
+            return_value=("Pod1", pod_readings),
+        ), patch(
+            "services.temperature_subscriber.persist_event",
+            side_effect=fake_persist,
+        ):
+            from services.temperature_event_generator import main
+
+            self.assertEqual(main(), 0)
+
+        mqtt_client.assert_not_called()
+        self.assertEqual(len(persisted), 1)
+        self.assertEqual(persisted[0]["run_id"], "run-direct")
 
     def test_csv_temperature_guidance_does_not_require_or_import_a_timestamp(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

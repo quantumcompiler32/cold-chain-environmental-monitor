@@ -12,6 +12,10 @@ PostgreSQL events or vaccine disposition.
 
 ## Architecture and data flow
 
+The maintained architecture, field definitions, setup/runbook, troubleshooting,
+demo script, E2E contract, and presentation checklist are also available in
+[`docs/`](docs/).
+
 ```text
 CSV guidance → event generator → Mosquitto MQTT → listener
                                                    │
@@ -30,8 +34,12 @@ CSV guidance → event generator → Mosquitto MQTT → listener
 - The CSV is guidance for source variation and event shape. It is not part of
   the live event timestamp contract.
 - The generator creates a new stable `event_id` and current UTC `event_time`.
+- The generator creates one `run_id` per invocation; every event in that run
+  carries the same optional correlation value.
 - The listener stamps `received_at` when it ingests the MQTT message.
 - The persistence transaction stamps `stored_at` and writes both tables.
+- The subscriber is the normal database write owner. Generator `--write-db`
+  is an explicit direct mode and does not publish the same event to MQTT.
 - The dashboard never connects directly to PostgreSQL and never writes data.
 - The live dashboard and raw event page receive committed events through a
   PostgreSQL `LISTEN/NOTIFY` channel exposed as Server-Sent Events (SSE).
@@ -182,6 +190,7 @@ The public CLI controls are:
 --count N
 --interval-ms N
 --seed N
+--run-id ID
 --write-db
 --output-mode none|summary|verbose
 ```
@@ -193,15 +202,20 @@ prints each event. `none` suppresses normal per-event output for large runs.
 
 ## Database design
 
-The generic `telemetry_logs` table remains generic. It stores the stable event
-ID, device, topic, event time, raw JSON payload, generic sensor values, status,
-and ingestion/persistence timestamps. It does not contain vaccine-domain
-columns.
+The generic `telemetry_logs` table remains generic. It stores the stable
+`event_id`, optional `run_id`, device, topic, event time, raw JSON payload,
+generic sensor values, status, and ingestion/persistence timestamps. It does
+not contain vaccine-domain columns.
 
 The flattened `vaccine_temperature_events` table stores vaccine-specific
 values: Pod, vaccine profile, scenario, temperature, safe range, uncertainty,
-status, and lifecycle timestamps. Its `event_id` is both its
-primary key and a foreign key to the generic raw event.
+status, lifecycle timestamps, and optional `run_id`. Its `event_id` is both its
+primary key and a foreign key to the generic raw event. These are two
+intentional projections of one event, not two independent write paths; the
+subscriber verifies that both rows exist before commit and notification.
+
+The complete read/write ledger is in
+[`docs/database-access.md`](docs/database-access.md).
 
 The canonical clean schema is:
 
@@ -211,6 +225,15 @@ database/bootstrap/001_core.sql
 
 Legacy data upgrades belong under `database/migrations/`. The clean bootstrap
 does not contain experimental create-then-alter sequences.
+
+## Reset the dashboard view
+
+This clears the open dashboard analytics view without deleting stored
+PostgreSQL events. Historical filters can still load the retained data.
+
+```bash
+APP_ENV=demo make reset-dashboard
+```
 
 ## Reset safety
 
@@ -228,6 +251,17 @@ exits before connecting to PostgreSQL.
 
 ## Verification
 
+Run the fast parity/readiness probe first:
+
+```bash
+python3 scripts/verify_database.py
+```
+
+It uses read-only transactions and returns one structured JSON object with
+schema readiness, row counts, projection parity, latest `event_id`/`run_id`,
+and elapsed milliseconds. It exits nonzero when PostgreSQL is unavailable or
+the two projections are not in parity.
+
 Run persistence verification before opening the dashboard:
 
 ```bash
@@ -239,6 +273,21 @@ temperature, status, event time, received time, ingestion latency, event age,
 total count, and first/latest timestamps. The underlying SQL is in
 `database/verification/latest_events.sql`.
 
+## API health and 404 diagnostics
+
+The dashboard bridge serves API routes on `127.0.0.1:8787`; the website server
+serves pages on `127.0.0.1:8766`. Use these checks:
+
+```bash
+curl http://127.0.0.1:8787/health
+curl http://127.0.0.1:8787/ready
+curl http://127.0.0.1:8787/api
+```
+
+`/health` is a process check. `/ready` proves that PostgreSQL and both
+canonical tables are reachable. A page request sent to port `8787` returns a
+structured 404 explaining that it belongs on port `8766`.
+
 ## Tests
 
 ```bash
@@ -247,6 +296,10 @@ source .venv/bin/activate
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 node --test web/scripts/vaccine-data.test.js
 ```
+
+For the optional local PostgreSQL integration check, set
+`RUN_DB_INTEGRATION=1`; it is skipped by default when no disposable database
+is configured.
 
 The Python tests cover timestamp correctness, scenario invariants, atomic
 dual-write success and rollback, duplicate idempotency, dashboard read mapping,

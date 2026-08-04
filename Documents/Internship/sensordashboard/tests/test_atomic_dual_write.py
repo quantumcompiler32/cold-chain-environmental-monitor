@@ -7,6 +7,7 @@ from services.temperature_subscriber import persist_event, process_message
 
 EVENT = {
     "event_id": "2f6f7c3d-5bd5-4f8c-9b8b-5bdb81f8d0c1",
+    "run_id": "run-2026-08-04-a",
     "device_id": "vaccine_temperature_simulator",
     "event_time": datetime(2026, 7, 29, 12, 0, 0, 123000, tzinfo=timezone.utc),
     "sensor_name": "Pod1",
@@ -43,6 +44,8 @@ class FakeCursor:
             raise RuntimeError("vaccine insert failed")
 
     def fetchone(self):
+        if len(self.statements) == 3:
+            return (True, True, EVENT["run_id"], EVENT["run_id"])
         return None if self.duplicate else (EVENT["event_id"],)
 
 
@@ -64,6 +67,15 @@ class FakeConnection:
 
     def cursor(self):
         return self.cursor_instance
+
+
+class PartialProjectionCursor(FakeCursor):
+    def fetchone(self):
+        if len(self.statements) == 1:
+            return None
+        if len(self.statements) == 2:
+            return (EVENT["event_id"],)
+        return (True, False, None, None)
 
 
 class AtomicDualWriteTests(unittest.TestCase):
@@ -99,13 +111,15 @@ class AtomicDualWriteTests(unittest.TestCase):
         self.assertFalse(result.duplicate)
         self.assertTrue(connection.committed)
         self.assertFalse(connection.rolled_back)
-        self.assertEqual(len(cursor.statements), 3)
+        self.assertEqual(len(cursor.statements), 4)
         generic_params = cursor.statements[0][1]
         vaccine_params = cursor.statements[1][1]
         self.assertEqual(generic_params[0], vaccine_params[0])
+        self.assertEqual(generic_params[1], vaccine_params[1])
+        self.assertEqual(generic_params[1], EVENT["run_id"])
         self.assertEqual(generic_params[-1], vaccine_params[-1])
         self.assertEqual(generic_params[-1].microsecond, 456000)
-        self.assertIn("pg_notify", cursor.statements[2][0])
+        self.assertIn("pg_notify", cursor.statements[3][0])
 
     def test_failure_rolls_back_both_writes(self):
         cursor = FakeCursor(fail_on_statement=2)
@@ -136,6 +150,20 @@ class AtomicDualWriteTests(unittest.TestCase):
         self.assertIsNone(result.stored_at)
         self.assertTrue(connection.committed)
         self.assertFalse(connection.rolled_back)
+
+    def test_partial_projection_is_rolled_back_instead_of_reported_as_duplicate(self):
+        cursor = PartialProjectionCursor()
+        connection = FakeConnection(cursor)
+
+        with self.assertRaisesRegex(RuntimeError, "both database projections"):
+            persist_event(
+                EVENT,
+                connection_factory=lambda: connection,
+                clock=lambda: datetime(2026, 7, 29, 12, 0, 0, tzinfo=timezone.utc),
+            )
+
+        self.assertFalse(connection.committed)
+        self.assertTrue(connection.rolled_back)
 
 
 if __name__ == "__main__":

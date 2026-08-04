@@ -78,6 +78,12 @@ class InferenceHttpTests(unittest.TestCase):
         self.assertTrue(response.json["ready"])
         self.assertEqual(response.json["model_version"], "v1")
 
+    def test_ready_reports_loaded_models(self):
+        response = self.client.get("/ready")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json["ready"])
+
     def test_predict_returns_advisory_results_for_one_event(self):
         response = self.client.post("/api/predict", json={"event": event()})
 
@@ -85,6 +91,8 @@ class InferenceHttpTests(unittest.TestCase):
         self.assertEqual(response.json["model_version"], "v1")
         self.assertEqual(response.json["primary"]["algorithm"], "logistic regression")
         self.assertIn("secondary", response.json)
+        self.assertEqual(response.json["input"]["sensor_name"], "Pod1")
+        self.assertEqual(response.json["features"]["temperature_c"], -78.5)
         self.assertTrue(response.json["read_only"])
 
     def test_predict_rejects_missing_event_without_writing_data(self):

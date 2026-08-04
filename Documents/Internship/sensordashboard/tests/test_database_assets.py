@@ -13,6 +13,7 @@ class DatabaseAssetTests(unittest.TestCase):
         self.assertIn("event_time TIMESTAMPTZ", sql)
         self.assertIn("received_at TIMESTAMPTZ", sql)
         self.assertIn("stored_at TIMESTAMPTZ", sql)
+        self.assertIn("run_id VARCHAR(120)", sql)
         for field in ("occupancy_state", "batch_id", "cooling_enabled", "operational_status", "severity", "rule_alert"):
             self.assertIn(field, sql)
         self.assertNotIn("ALTER TABLE", sql)
@@ -28,6 +29,15 @@ class DatabaseAssetTests(unittest.TestCase):
         self.assertIn("COUNT(*)", sql)
         self.assertIn("MIN(event_time)", sql)
         self.assertIn("MAX(event_time)", sql)
+        self.assertIn("run_id", sql)
+
+    def test_fast_verifier_checks_read_only_schema_and_projection_parity(self):
+        script = (ROOT / "scripts" / "verify_database.py").read_text()
+
+        self.assertIn("SET TRANSACTION READ ONLY", script)
+        self.assertIn("orphan_generic_count", script)
+        self.assertIn("orphan_domain_count", script)
+        self.assertIn("latest_run_id", script)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ import csv
 import io
 # json turns Python dictionaries into data the browser understands.
 import json
+import logging
 # os lets the user override database settings with environment variables.
 import os
 from datetime import date, datetime, time
@@ -30,6 +31,7 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 from urllib.parse import parse_qs
 from uuid import UUID
+from uuid import uuid4
 
 try:
     from services.event_contract import parse_timestamp
@@ -42,11 +44,13 @@ DEFAULT_PORT = 8787
 EVENT_NOTIFY_CHANNEL = "cold_chain_events"
 RESET_NOTIFY_CHANNEL = "cold_chain_reset"
 LIVE_SNAPSHOT_LIMIT = 2000
+LOGGER = logging.getLogger("dashboard_bridge")
 
 # These are the PostgreSQL column names selected by the adapter. Keep the
 # order stable so the CSV export is deterministic and easy to load in Colab.
 EVENT_COLUMNS = (
     "event_id",
+    "run_id",
     "device_id",
     "sensor_name",
     "vaccine_type",
@@ -77,6 +81,7 @@ EVENT_COLUMNS = (
 
 CSV_COLUMNS = (
     "event_id",
+    "run_id",
     "device_id",
     "sensor_name",
     "vaccine_type",
@@ -104,7 +109,7 @@ CSV_COLUMNS = (
 )
 
 EVENT_SELECT = """
-SELECT event_id, device_id, sensor_name, vaccine_type, scenario, scenario_phase,
+SELECT event_id, run_id, device_id, sensor_name, vaccine_type, scenario, scenario_phase,
        occupancy_state, batch_id, cooling_enabled, operational_status, severity, rule_alert,
        temperature_c, status, sensor_tolerance_c, temperature_min_possible_c,
        temperature_max_possible_c, storage_min_c, storage_max_c,
@@ -203,6 +208,13 @@ class DatabaseReader:
                     for column in cursor.description:
                         name = getattr(column, "name", None)
                         columns.append(name if name is not None else column[0])
+            LOGGER.info(json.dumps({
+                "event": "db_read",
+                "component": "dashboard_bridge",
+                "read_only": True,
+                "row_count": len(rows),
+                "tables": ["vaccine_temperature_events"] if "vaccine_temperature_events" in query else [],
+            }, sort_keys=True))
         except DatabaseUnavailable:
             raise
         except Exception as exc:
@@ -216,14 +228,36 @@ class DatabaseReader:
         ]
 
     def check(self) -> None:
-        """Verify that PostgreSQL is reachable without changing its state."""
-        self._rows("SELECT 1")
+        """Verify connectivity and the canonical two-table schema read-only."""
+        result = self._rows(
+            """
+            SELECT
+                to_regclass('public.telemetry_logs') AS telemetry_logs,
+                to_regclass('public.vaccine_temperature_events') AS vaccine_temperature_events,
+                EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'telemetry_logs' AND column_name = 'run_id'
+                ) AS telemetry_run_id,
+                EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'vaccine_temperature_events' AND column_name = 'run_id'
+                ) AS vaccine_run_id
+            """
+        )
+        if not result or not all((
+            result[0].get("telemetry_logs"),
+            result[0].get("vaccine_temperature_events"),
+            result[0].get("telemetry_run_id"),
+            result[0].get("vaccine_run_id"),
+        )):
+            raise DatabaseUnavailable("required PostgreSQL tables or run_id columns are not ready")
 
     def _map_events(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         events = []
         for row in rows:
             event = {
                 "event_id": str(row["event_id"]),
+                "run_id": row.get("run_id") or "",
                 "device_id": row["device_id"],
                 "sensor_name": row["sensor_name"],
                 "vaccine_type": row["vaccine_type"],
@@ -374,9 +408,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Cache-Control", "no-store")
+        if getattr(self, "request_id", None):
+            self.send_header("X-Request-ID", self.request_id)
 
     def _json(self, status: int, payload: Any) -> None:
         # HTTP sends bytes, so first convert the Python object to JSON bytes.
+        if status >= 400 and isinstance(payload, dict) and getattr(self, "request_id", None):
+            payload = {**payload, "request_id": self.request_id}
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self._headers()
@@ -417,6 +455,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             with self.reader._connect() as connection:
                 with connection.cursor() as cursor:
+                    cursor.execute("SET TRANSACTION READ ONLY")
                     cursor.execute("SET TIME ZONE 'UTC'")
                     cursor.execute(f"LISTEN {EVENT_NOTIFY_CHANNEL}")
                     cursor.execute(f"LISTEN {RESET_NOTIFY_CHANNEL}")
@@ -466,14 +505,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         # Browsers may ask permission before a cross-origin GET request.
+        self.request_id = self.headers.get("X-Request-ID") or str(uuid4())
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("X-Request-ID", self.request_id)
         self.end_headers()
 
     def do_GET(self):
         # GET means the browser is asking to read something.
+        self.request_id = self.headers.get("X-Request-ID") or str(uuid4())
         path = urlparse(self.path).path
         try:
             filters = request_filters(self.path)
@@ -481,11 +523,40 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json(400, {"error": str(exc), "database_connected": True})
             return
         if path == "/health":
+            self._json(200, {
+                "ok": True,
+                "service": "dashboard_bridge",
+                "read_only": True,
+                "database_checked": False,
+            })
+            return
+        if path in {"/ready", "/api/ready", "/api/health"}:
             try:
                 self.reader.check()
-                self._json(200, {"ok": True, "database_connected": True, "read_only": True})
+                self._json(200, {
+                    "ok": True,
+                    "ready": True,
+                    "service": "dashboard_bridge",
+                    "database_connected": True,
+                    "read_only": True,
+                })
             except DatabaseUnavailable as exc:
-                self._json(200, {"ok": True, "database_connected": False, "read_only": True, "error": str(exc)})
+                self._json(503, {
+                    "ok": False,
+                    "ready": False,
+                    "service": "dashboard_bridge",
+                    "database_connected": False,
+                    "read_only": True,
+                    "error": str(exc),
+                })
+            return
+        if path in {"/", "/api"}:
+            self._json(200, {
+                "service": "dashboard_bridge",
+                "read_only": True,
+                "routes": ["/health", "/ready", "/api/events", "/api/live", "/api/live/stream", "/api/analytics", "/api/events/export.csv"],
+                "hint": "Dashboard pages are served by the web server, not this API port.",
+            })
             return
         if path == "/api/live/stream":
             self._event_stream()
@@ -526,17 +597,42 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except DatabaseUnavailable as exc:
                 self._json(503, {"error": str(exc), "database_connected": False})
             return
-        self._json(404, {"error": "Not found"})
+        self._json(404, {
+            "error": "Not found",
+            "path": path,
+            "hint": "Use the dashboard website port for pages and this port for the documented API routes.",
+        })
 
     def do_POST(self):
         # Explicitly reject all mutation verbs; this adapter is read-only.
-        self._json(405, {"error": "The dashboard bridge is read-only."})
+        self.request_id = self.headers.get("X-Request-ID") or str(uuid4())
+        self.send_response(405)
+        self._headers()
+        self.send_header("Allow", "GET, OPTIONS")
+        body = json.dumps({
+            "error": "The dashboard bridge is read-only.",
+            "path": urlparse(self.path).path,
+            "request_id": self.request_id,
+        }).encode("utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    do_PUT = do_POST
+    do_PATCH = do_POST
+    do_DELETE = do_POST
 
     def log_message(self, format, *args):
-        print(f"[dashboard-read-only] {self.address_string()} - {format % args}")
+        LOGGER.info(json.dumps({
+            "event": "http_request",
+            "request_id": getattr(self, "request_id", None),
+            "remote": self.address_string(),
+            "message": format % args,
+        }, sort_keys=True))
 
 
 def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     # Command-line options allow a different host or port during development.
     parser = argparse.ArgumentParser(description="Run the read-only vaccine dashboard database adapter.")
     parser.add_argument("--host", default=DEFAULT_HOST)

@@ -1,6 +1,7 @@
 -- Persistence verification query. Run after a generator/listener demo.
 SELECT
     event_id,
+    run_id,
     device_id,
     sensor_name AS pod_id,
     vaccine_type,

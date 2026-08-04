@@ -18,6 +18,7 @@ class EventContractTests(unittest.TestCase):
             event_number=1,
             total_events=1,
             event_id="2f6f7c3d-5bd5-4f8c-9b8b-5bdb81f8d0c1",
+            run_id="run-2026-08-04-a",
             event_time=datetime(2026, 7, 29, 12, 0, 0, 123456, tzinfo=timezone.utc),
         )
         event_time = datetime.fromisoformat(event["event_time"])
@@ -26,6 +27,7 @@ class EventContractTests(unittest.TestCase):
         self.assertNotIn("source_time", event)
         self.assertNotIn("source_timestamp", event)
         self.assertEqual(event["event_id"], "2f6f7c3d-5bd5-4f8c-9b8b-5bdb81f8d0c1")
+        self.assertEqual(event["run_id"], "run-2026-08-04-a")
         UUID(event["event_id"])
         self.assertEqual(event_time, datetime(2026, 7, 29, 12, 0, 0, 123000, tzinfo=timezone.utc))
 

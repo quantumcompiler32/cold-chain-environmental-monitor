@@ -379,6 +379,16 @@ def predict_event(bundle: dict[str, Any], event: dict[str, Any], context_events:
     return {
         "model_version": bundle["model_version"],
         "event_id": normalized["event_id"],
+        "input": {
+            "sensor_name": normalized["sensor_name"],
+            "temperature_c": normalized["temperature_c"],
+            "vaccine_type": normalized.get("vaccine_type", "pfizer_ultralow"),
+            "scenario": normalized.get("scenario", "normal"),
+            "storage_min_c": normalized["storage_min_c"],
+            "storage_max_c": normalized["storage_max_c"],
+            "target_c": normalized["target_c"],
+        },
+        "features": dict(zip(FEATURE_NAMES, (round(value, 4) for value in features))),
         "read_only": True,
         "educational_use_only": True,
         "primary": logistic_result,
@@ -416,6 +426,13 @@ def create_app(model_dir: str | Path = DEFAULT_MODEL_DIR):
         if load_error:
             payload["error"] = load_error
         return jsonify(payload)
+
+    @app.get("/ready")
+    def ready():
+        payload = {"ok": bundle is not None, "ready": bundle is not None, "read_only": True, "model_version": bundle.get("model_version") if bundle else None}
+        if load_error:
+            payload["error"] = load_error
+        return jsonify(payload), (200 if bundle is not None else 503)
 
     @app.post("/api/predict")
     def predict():

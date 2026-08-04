@@ -2,7 +2,7 @@ PYTHON ?= .venv/bin/python
 APP_ENV ?= development
 LISTENER_OUTPUT_MODE ?= verbose
 
-.PHONY: test reset-demo verify train-models start-infrastructure start-listener start-ml-service run-scenario demo-all start-dashboard stop-demo
+.PHONY: test reset-demo reset-dashboard verify verify-fast train-models start-infrastructure start-listener start-ml-service run-scenario demo-all start-dashboard stop-demo
 
 test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_*.py' -v
@@ -11,8 +11,14 @@ reset-demo:
 	@if [ "$(RESET_CONFIRM)" != "YES" ]; then echo "Refusing reset. Re-run with RESET_CONFIRM=YES and --confirm-reset is applied by this target."; exit 1; fi
 	APP_ENV=$(APP_ENV) $(PYTHON) scripts/reset_demo.py --confirm-reset
 
+reset-dashboard:
+	APP_ENV=$(APP_ENV) $(PYTHON) scripts/reset_dashboard.py
+
 verify:
 	$(PYTHON) scripts/verify_persistence.py
+
+verify-fast:
+	$(PYTHON) scripts/verify_database.py
 
 train-models:
 	$(PYTHON) -m services.train_models --vaccine $(or $(VACCINE),pfizer_ultralow)

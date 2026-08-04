@@ -7,6 +7,7 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS telemetry_logs (
     id BIGSERIAL PRIMARY KEY,
     event_id UUID NOT NULL UNIQUE,
+    run_id VARCHAR(120),
     device_id VARCHAR(150) NOT NULL,
     topic VARCHAR(255) NOT NULL,
     event_time TIMESTAMPTZ NOT NULL,
@@ -21,6 +22,7 @@ CREATE TABLE IF NOT EXISTS telemetry_logs (
 
 CREATE TABLE IF NOT EXISTS vaccine_temperature_events (
     event_id UUID PRIMARY KEY REFERENCES telemetry_logs(event_id) ON DELETE CASCADE,
+    run_id VARCHAR(120),
     device_id VARCHAR(150) NOT NULL,
     sensor_name VARCHAR(100) NOT NULL,
     vaccine_type VARCHAR(80) NOT NULL,
@@ -53,6 +55,8 @@ CREATE INDEX IF NOT EXISTS ix_telemetry_logs_device_event_time
     ON telemetry_logs (device_id, event_time DESC);
 CREATE INDEX IF NOT EXISTS ix_telemetry_logs_received_at
     ON telemetry_logs (received_at DESC);
+CREATE INDEX IF NOT EXISTS ix_telemetry_logs_run_id
+    ON telemetry_logs (run_id, event_time DESC);
 CREATE INDEX IF NOT EXISTS ix_vaccine_events_event_time
     ON vaccine_temperature_events (event_time DESC, event_id);
 CREATE INDEX IF NOT EXISTS ix_vaccine_events_sensor_event_time
@@ -65,6 +69,8 @@ CREATE INDEX IF NOT EXISTS ix_vaccine_events_vaccine_event_time
     ON vaccine_temperature_events (vaccine_type, event_time DESC);
 CREATE INDEX IF NOT EXISTS ix_vaccine_events_received_at
     ON vaccine_temperature_events (received_at DESC);
+CREATE INDEX IF NOT EXISTS ix_vaccine_events_run_id
+    ON vaccine_temperature_events (run_id, event_time DESC);
 CREATE INDEX IF NOT EXISTS ix_vaccine_events_batch_event_time
     ON vaccine_temperature_events (batch_id, event_time DESC);
 CREATE INDEX IF NOT EXISTS ix_vaccine_events_occupancy_event_time

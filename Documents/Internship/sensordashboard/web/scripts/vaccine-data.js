@@ -111,6 +111,7 @@
     const eventProfile = getProfile(raw.vaccine_type ?? profile.id, raw);
     return {
       event_id: String(raw.event_id ?? raw.id ?? raw.event_sequence ?? raw.received_at ?? `${raw.timestamp ?? raw.event_timestamp ?? ''}|${raw.sensor_name ?? raw.sensor ?? ''}|${temperature}`),
+      run_id: String(raw.run_id ?? ''),
       device_id: String(raw.device_id ?? 'vaccine_temperature_simulator'),
       event_time: String(raw.event_time ?? raw.timestamp ?? raw.event_timestamp ?? raw.received_at ?? ''),
       timestamp: String(raw.event_time ?? raw.timestamp ?? raw.event_timestamp ?? raw.received_at ?? ''),
@@ -628,7 +629,7 @@
   }
 
   function toCsv(events) {
-    const headers = ['event_id', 'device_id', 'event_time', 'received_at', 'stored_at', 'sensor_name', 'vaccine_type', 'scenario', 'scenario_phase', 'occupancy_state', 'batch_id', 'cooling_enabled', 'operational_status', 'severity', 'rule_alert', 'temperature_c', 'status', 'sensor_tolerance_c', 'temperature_min_possible_c', 'temperature_max_possible_c', 'storage_min_c', 'storage_max_c', 'uncertainty_status', 'boundary_crossing', 'measurement_confidence'];
+  const headers = ['event_id', 'run_id', 'device_id', 'event_time', 'received_at', 'stored_at', 'sensor_name', 'vaccine_type', 'scenario', 'scenario_phase', 'occupancy_state', 'batch_id', 'cooling_enabled', 'operational_status', 'severity', 'rule_alert', 'temperature_c', 'status', 'sensor_tolerance_c', 'temperature_min_possible_c', 'temperature_max_possible_c', 'storage_min_c', 'storage_max_c', 'uncertainty_status', 'boundary_crossing', 'measurement_confidence'];
     const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
     return [headers.join(','), ...events.map((event) => headers.map((header) => quote(event[header])).join(','))].join('\n');
   }

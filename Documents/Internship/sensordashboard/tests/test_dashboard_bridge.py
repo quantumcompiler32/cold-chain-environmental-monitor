@@ -41,6 +41,7 @@ class FakeConnection:
 def database_row(**overrides):
     values = {
         "event_id": "2f6f7c3d-5bd5-4f8c-9b8b-5bdb81f8d0c1",
+        "run_id": "run-2026-08-04-a",
         "device_id": "vaccine_temperature_simulator",
         "sensor_name": "Pod1",
         "vaccine_type": "pfizer_ultralow",
@@ -80,6 +81,7 @@ class DashboardBridgeTests(unittest.TestCase):
         result = reader.fetch_events()
 
         self.assertEqual(result[0]["event_id"], "2f6f7c3d-5bd5-4f8c-9b8b-5bdb81f8d0c1")
+        self.assertEqual(result[0]["run_id"], "run-2026-08-04-a")
         self.assertEqual(result[0]["timestamp"], "2026-07-29T12:00:00.123000+00:00")
         self.assertNotIn("source_time", result[0])
         self.assertNotIn("source_timestamp", result[0])
@@ -95,7 +97,7 @@ class DashboardBridgeTests(unittest.TestCase):
 
         lines = reader.export_csv().splitlines()
 
-        self.assertEqual(lines[0].split(",")[:4], ["event_id", "device_id", "sensor_name", "vaccine_type"])
+        self.assertEqual(lines[0].split(",")[:5], ["event_id", "run_id", "device_id", "sensor_name", "vaccine_type"])
         self.assertIn("occupancy_state", lines[0].split(","))
         self.assertIn("operational_status", lines[0].split(","))
         self.assertEqual(len(lines), 2)
