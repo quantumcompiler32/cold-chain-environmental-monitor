@@ -19,17 +19,6 @@
     URL.revokeObjectURL(link.href);
   }
 
-  async function exportColabTrainingCsv() {
-    const response = await fetch(`${BRIDGE_URL}/api/events/export-colab.csv`, { cache: 'no-store' });
-    if (!response.ok) throw new Error('Colab CSV export is unavailable while PostgreSQL is offline.');
-    const blob = await response.blob();
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'Test1_TempCO2O2.csv';
-    link.click();
-    URL.revokeObjectURL(link.href);
-  }
-
   function sortEvents(events) {
     return events.slice().sort((left, right) => {
       const timeDifference = Date.parse(left.event_time || left.timestamp || '') - Date.parse(right.event_time || right.timestamp || '');
@@ -93,5 +82,5 @@
     };
   }
 
-  global.VaccineBridge = { request, exportAllEvents, exportColabTrainingCsv, watchDatabase };
+  global.VaccineBridge = { request, exportAllEvents, watchDatabase };
 })(typeof globalThis === 'undefined' ? this : globalThis);

@@ -1,6 +1,4 @@
-import csv
 import unittest
-from io import StringIO
 from datetime import datetime, timezone
 
 from services import dashboard_bridge as bridge
@@ -102,31 +100,6 @@ class DashboardBridgeTests(unittest.TestCase):
         self.assertIn("operational_status", lines[0].split(","))
         self.assertEqual(len(lines), 2)
         self.assertIn("Pod1", lines[1])
-
-    def test_exports_live_events_in_the_original_colab_csv_layout(self):
-        connection = FakeConnection([
-            database_row(sensor_name="Pod1", temperature_c=-78.5),
-            database_row(
-                event_id="3f6f7c3d-5bd5-4f8c-9b8b-5bdb81f8d0c2",
-                sensor_name="Pod2",
-                temperature_c=-77.5,
-                event_time=datetime(2026, 7, 29, 12, 0, 0, 124000, tzinfo=timezone.utc),
-            ),
-        ])
-        reader = bridge.DatabaseReader(connect_factory=lambda **_: connection, settings={})
-
-        rows = list(csv.reader(StringIO(reader.export_colab_training_csv())))
-
-        self.assertEqual(len(rows), 4)
-        self.assertEqual(rows[0], list(bridge.COLAB_SOURCE_COLUMNS))
-        self.assertEqual(rows[1], list(bridge.COLAB_SOURCE_METADATA))
-        self.assertEqual(rows[2], list(bridge.COLAB_SOURCE_UNITS))
-        self.assertEqual(len(rows[3]), 65)
-        self.assertEqual(rows[3][0:3], ["29-Jul-26", "05:00:00", "0:00:00"])
-        self.assertEqual(rows[3][rows[0].index("Pod1")], "-109.3")
-        self.assertEqual(rows[3][rows[0].index("Pod2")], "-107.5")
-        self.assertEqual(rows[3][rows[0].index("O2")], "")
-        self.assertEqual(rows[3][rows[0].index("CO2")], "")
 
     def test_latest_events_query_is_bounded_and_newest_first(self):
         connection = FakeConnection([database_row()])

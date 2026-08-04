@@ -30,7 +30,6 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 from urllib.parse import parse_qs
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 try:
     from services.event_contract import parse_timestamp
@@ -103,35 +102,6 @@ CSV_COLUMNS = (
     "received_at",
     "stored_at",
 )
-
-# The existing Colab notebook reads this research-file contract: a 65-column
-# header followed by a sensor-ID row and a units row.  The live dashboard only
-# produces Pod1–Pod20, so the other source channels remain empty rather than
-# being fabricated.
-COLAB_SOURCE_COLUMNS = (
-    "date", "time", "Time Elapsed", "Pod20", "Pod19", "Pod18", "Pod17", "Pod16",
-    "Pod15", "Pod14", "Pod13", "Pod12", "Pod11", "Pod10", "Pod9", "Pod7", "Pod5",
-    "Pod8", "Pod6", "Pod4", "Pod3", "Pod1", "Pod2", "Ambient", "TC43", "TC44",
-    "TC45", "TC46", "TC47", "TC48", "TC49", "TC50", "TC1", "TC2", "TC3",
-    "TC4", "TC5", "TC6", "TC7", "TempT2", "TempT4", "TempT6", "TC12", "TC13",
-    "TC14", "TempT7", "TC16", "TC17", "TC18", "TempT8", "TempT5", "TC21", "TC22",
-    "TempT3", "TC24", "TC25", "TC26", "TempT1", "TC28", "TC29", "TC30", "O2",
-    "CO2", "", "",
-)
-COLAB_SOURCE_METADATA = (
-    "", "", "", "b20", "b19", "b18", "b17", "b16", "b15", "b14", "b13",
-    "b12", "b11", "b10", "b9", "b7", "b5", "b8", "b6", "b4", "b3", "b1",
-    "b2", "Toutside", "Te6", "Te5", "Te4", "Td6", "Td5", "Td4", "Tc5", "Tc4",
-    "Tc6", "Tb4", "Tb5", "Tb6", "Ta4", "Ta5", "Ta6", "Ti9", "Th9", "Tg9",
-    "Ta3", "Ta2", "Ta1", "Tf8", "Tb3", "Tb2", "Tb1", "Tf9", "Tg8", "Tc3",
-    "Tc2", "Th8", "Td3", "Td2", "Td1", "Ti8", "Te3", "Te2", "Te1", "O2", "CO2",
-    "", "",
-)
-COLAB_SOURCE_UNITS = (
-    "", "", "", *(["F"] * 58), "%", "%", "", "",
-)
-COLAB_PODS = tuple(f"Pod{index}" for index in range(1, 21))
-CALIFORNIA_TIMEZONE = ZoneInfo("America/Los_Angeles")
 
 EVENT_SELECT = """
 SELECT event_id, device_id, sensor_name, vaccine_type, scenario, scenario_phase,
@@ -325,51 +295,6 @@ class DatabaseReader:
         for event in self.fetch_events(filters):
             writer.writerow([event.get(column, "") for column in CSV_COLUMNS])
         return output.getvalue()
-
-    def export_colab_training_csv(self, filters: dict[str, str] | None = None) -> str:
-        """Pivot live Pod events into the existing Test1 CSV contract for Colab."""
-        events_by_pod = {pod: [] for pod in COLAB_PODS}
-        for event in self.fetch_events(filters):
-            pod = event.get("sensor_name")
-            if pod in events_by_pod:
-                events_by_pod[pod].append(event)
-
-        row_count = max((len(events) for events in events_by_pod.values()), default=0)
-        output = io.StringIO(newline="")
-        writer = csv.writer(output, lineterminator="\n")
-        writer.writerow(COLAB_SOURCE_COLUMNS)
-        writer.writerow(COLAB_SOURCE_METADATA)
-        writer.writerow(COLAB_SOURCE_UNITS)
-
-        first_time: datetime | None = None
-        for row_index in range(row_count):
-            round_events = [
-                events[row_index]
-                for events in events_by_pod.values()
-                if row_index < len(events)
-            ]
-            event_times = [
-                parse_timestamp(event["event_time"], "event_time", assume_utc=False)
-                for event in round_events
-            ]
-            snapshot_time = min(event_times)
-            first_time = first_time or snapshot_time
-            local_time = snapshot_time.astimezone(CALIFORNIA_TIMEZONE)
-            elapsed_seconds = int((snapshot_time - first_time).total_seconds())
-            elapsed_hours, remainder = divmod(max(elapsed_seconds, 0), 3600)
-            elapsed_minutes, elapsed_seconds = divmod(remainder, 60)
-            row = ["" for _ in COLAB_SOURCE_COLUMNS]
-            row[0] = local_time.strftime("%d-%b-%y")
-            row[1] = local_time.strftime("%H:%M:%S")
-            row[2] = f"{elapsed_hours}:{elapsed_minutes:02d}:{elapsed_seconds:02d}"
-            for event in round_events:
-                pod = event["sensor_name"]
-                column = COLAB_SOURCE_COLUMNS.index(pod)
-                fahrenheit = float(event["temperature_c"]) * 9.0 / 5.0 + 32.0
-                row[column] = f"{fahrenheit:.4f}".rstrip("0").rstrip(".")
-            writer.writerow(row)
-        return output.getvalue()
-
 
 FILTER_COLUMNS = {
     "pod": "sensor_name",
@@ -598,15 +523,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/events/export.csv":
             try:
                 self._csv(self.reader.export_csv(filters))
-            except DatabaseUnavailable as exc:
-                self._json(503, {"error": str(exc), "database_connected": False})
-            return
-        if path == "/api/events/export-colab.csv":
-            try:
-                self._csv(
-                    self.reader.export_colab_training_csv(filters),
-                    "Test1_TempCO2O2.csv",
-                )
             except DatabaseUnavailable as exc:
                 self._json(503, {"error": str(exc), "database_connected": False})
             return

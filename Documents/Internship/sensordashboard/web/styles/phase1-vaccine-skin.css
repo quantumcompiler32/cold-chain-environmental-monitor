@@ -111,8 +111,8 @@ body { background: var(--phase1-canvas); color: var(--text); }
 .vaccine-page .toast { background: var(--phase1-surface-high); border-color: var(--phase1-violet); border-radius: 2px; box-shadow: none; }
 .vaccine-page .prototype-switcher { border-radius: 2px; box-shadow: none; }
 
-.vaccine-tabs { align-items: center; background: var(--phase1-surface); border: 1px solid var(--phase1-line); display: flex; gap: 4px; margin-bottom: 18px; padding: 4px; }
-.vaccine-tab { border-bottom: 2px solid transparent; color: var(--muted); font-family: var(--mono); font-size: 10px; letter-spacing: .06em; padding: 9px 14px 8px; text-decoration: none; text-transform: uppercase; }
+.vaccine-tabs { align-items: center; background: var(--phase1-surface); border: 1px solid var(--phase1-line); display: flex; gap: 6px; margin-bottom: 18px; max-width: 620px; padding: 5px; width: 100%; }
+.vaccine-tab { align-items: center; border-bottom: 2px solid transparent; color: var(--muted); display: inline-flex; font-family: var(--mono); font-size: 10px; font-weight: 700; justify-content: center; letter-spacing: .06em; min-width: 112px; padding: 9px 14px 8px; text-decoration: none; text-transform: uppercase; }
 .vaccine-tab:hover { background: var(--phase1-surface-low); color: var(--text); }
 .vaccine-tab.active { background: var(--phase1-surface-high); border-bottom-color: var(--phase1-violet); color: var(--phase1-lavender); }
 .vaccine-tab:focus-visible { outline: 2px solid var(--phase1-lavender); outline-offset: -2px; }
@@ -140,8 +140,8 @@ body { background: var(--phase1-canvas); color: var(--text); }
 .inference-page .safety-note strong { color: #fbbf24; }
 
 @media (max-width: 760px) {
-  .vaccine-tabs { overflow-x: auto; }
-  .vaccine-tab { white-space: nowrap; }
+  .vaccine-tabs { max-width: none; overflow-x: auto; }
+  .vaccine-tab { min-width: 100px; white-space: nowrap; }
   .inference-page .inference-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .inference-page .inference-result { grid-template-columns: 1fr; }
 }

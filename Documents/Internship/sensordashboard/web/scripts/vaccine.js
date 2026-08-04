@@ -541,15 +541,6 @@
     }
   });
 
-  $('exportColabButton').addEventListener('click', async () => {
-    try {
-      await bridge.exportColabTrainingCsv();
-      showToast('Downloaded Test1_TempCO2O2.csv for Colab.');
-    } catch (error) {
-      showToast(error.message);
-    }
-  });
-
   document.querySelectorAll('[data-range]').forEach((button) => button.addEventListener('click', () => applyRange(button.dataset.range)));
   $('applyFilters').addEventListener('click', () => {
     document.querySelectorAll('[data-range]').forEach((button) => button.classList.remove('active'));
