@@ -12,6 +12,10 @@
   });
 
   const SENSOR_TOLERANCE_C = 0.5;
+  const POD_TREND_WINDOW_MINUTES = 15;
+  const POD_CHART_WINDOW_MINUTES = 60;
+  const POD_RECOVERY_HOLD_MINUTES = 5;
+  const POD_RAPID_CHANGE_C = 0.5;
 
   const STATUS_ORDER = ['STABLE', 'ACCEPTABLE', 'TOO_COLD', 'TOO_WARM'];
   const PROFILE_DEFINITIONS = {
@@ -116,7 +120,7 @@
       occupancy_state: String(raw.occupancy_state ?? 'loaded'),
       batch_id: String(raw.batch_id ?? ''),
       cooling_enabled: raw.cooling_enabled !== false,
-      operational_status: String(raw.operational_status ?? operationalStatusFromObserved(raw.status, raw.occupancy_state)),
+      operational_status: String(raw.operational_status ?? operationalStatusFromObserved(raw.status, raw.occupancy_state, raw.cooling_enabled)),
       severity: String(raw.severity ?? 'info'),
       rule_alert: String(raw.rule_alert ?? ''),
       temperature_c: temperature,
@@ -125,9 +129,9 @@
     };
   }
 
-  function operationalStatusFromObserved(status, occupancy = 'loaded') {
+  function operationalStatusFromObserved(status, occupancy = 'loaded', coolingEnabled = true) {
     if (String(occupancy).toLowerCase() === 'offline') return 'OFFLINE';
-    if (String(occupancy).toLowerCase() === 'empty') return 'EMPTY';
+    if (String(occupancy).toLowerCase() === 'empty') return coolingEnabled === false ? 'EMPTY' : 'ENERGY_WASTE';
     if (status === 'SENSOR_FAULT') return 'SENSOR_FAULT';
     if (status === 'TOO_COLD' || status === 'TOO_WARM') return 'CRITICAL';
     return 'NORMAL';
@@ -232,6 +236,106 @@
     return events.slice().sort((left, right) => timestampValue(left.timestamp) - timestampValue(right.timestamp) || eventSequence(left) - eventSequence(right));
   }
 
+  function trendSlopeCPerHour(events) {
+    if (events.length < 2) return null;
+    const firstTime = timestampValue(events[0].timestamp);
+    const points = events.map((event) => ({
+      x: (timestampValue(event.timestamp) - firstTime) / 3600000,
+      y: Number(event.temperature_c),
+    })).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+    if (points.length < 2) return null;
+    const meanX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
+    const meanY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+    const denominator = points.reduce((sum, point) => sum + (point.x - meanX) ** 2, 0);
+    if (!denominator) return null;
+    return points.reduce((sum, point) => sum + (point.x - meanX) * (point.y - meanY), 0) / denominator;
+  }
+
+  function podTrendMessage(latest, trendKey) {
+    if (trendKey === 'energy_waste') return { message: 'Pod is empty while cooling is active', recommendation: 'Consider standby mode' };
+    if (trendKey === 'offline') return { message: 'Pod has stopped reporting', recommendation: 'Check sensor connection' };
+    if (trendKey === 'sensor_fault') return { message: 'Sensor is reporting a fault', recommendation: 'Check sensor' };
+    if (trendKey === 'too_warm') return { message: 'Temperature is above the safe range', recommendation: 'Inspect cooling and review door activity' };
+    if (trendKey === 'too_cold') return { message: 'Temperature is below the safe range', recommendation: 'Check sensor and cooling settings' };
+    if (trendKey === 'rapid_warming') return { message: 'Temperature is rising quickly', recommendation: 'Review door activity and inspect cooling' };
+    if (trendKey === 'rapid_cooling') return { message: 'Temperature is falling quickly', recommendation: 'Check sensor and cooling settings' };
+    if (trendKey === 'recovering') return { message: 'Temperature is moving back toward the safe range', recommendation: 'Monitor recovery until the temperature stabilizes' };
+    if (trendKey === 'warming') return { message: 'Temperature is trending warmer', recommendation: 'Review the trend and inspect cooling if it continues' };
+    if (trendKey === 'cooling') return { message: 'Temperature is trending colder', recommendation: 'Review the trend and verify the sensor' };
+    if (String(latest?.rule_alert || '') === 'LOADED_POD_NO_BATCH') return { message: 'Pod is loaded but no batch is assigned', recommendation: 'Review batch assignment' };
+    if (String(latest?.uncertainty_status || '').startsWith('BORDERLINE')) return { message: 'Temperature is close to a storage boundary', recommendation: 'Review the trend and verify the sensor' };
+    return { message: 'Temperature is stable', recommendation: 'No action needed' };
+  }
+
+  function buildPodSummary(history, profile = PROFILE, options = {}) {
+    const ordered = sortedEvents(history).filter((event) => Number.isFinite(Number(event.temperature_c)));
+    const latest = ordered.at(-1);
+    const trendWindowMinutes = Number(options.trendWindowMinutes ?? POD_TREND_WINDOW_MINUTES);
+    const chartWindowMinutes = Number(options.chartWindowMinutes ?? POD_CHART_WINDOW_MINUTES);
+    if (!latest) {
+      return {
+        latest: null,
+        operationalStatus: 'OFFLINE',
+        trendKey: 'offline',
+        trendMessage: 'Pod has no recent reading',
+        recommendation: 'Check sensor connection',
+        recentEvents: [],
+        chartEvents: [],
+        slopeCPerHour: null,
+        deltaC: null,
+        observedMinutes: 0,
+        trendWindowMinutes,
+        chartWindowMinutes,
+      };
+    }
+
+    const latestTime = timestampValue(latest.timestamp);
+    const recentWindow = ordered.filter((event) => latestTime - timestampValue(event.timestamp) <= trendWindowMinutes * 60000);
+    const recentEvents = recentWindow.length >= 2 ? recentWindow : ordered.slice(-Math.min(6, ordered.length));
+    const chartWindow = ordered.filter((event) => latestTime - timestampValue(event.timestamp) <= chartWindowMinutes * 60000);
+    const chartEvents = chartWindow.length >= 2 ? chartWindow : ordered.slice(-Math.min(12, ordered.length));
+    const firstRecent = recentEvents[0];
+    const deltaC = firstRecent ? Number(latest.temperature_c) - Number(firstRecent.temperature_c) : null;
+    const observedMinutes = firstRecent ? Math.max(0, (latestTime - timestampValue(firstRecent.timestamp)) / 60000) : 0;
+    const slopeCPerHour = trendSlopeCPerHour(recentEvents);
+    const recoveryHoldMinutes = Number(options.recoveryHoldMinutes ?? POD_RECOVERY_HOLD_MINUTES);
+    const lastExcursionIndex = ordered.reduce((index, event, eventIndex) => event.status === 'TOO_COLD' || event.status === 'TOO_WARM' ? eventIndex : index, -1);
+    const previousExcursion = lastExcursionIndex >= 0 && lastExcursionIndex < ordered.length - 1;
+    const postExcursion = previousExcursion ? ordered.slice(lastExcursionIndex + 1) : [];
+    const recoveryMinutes = postExcursion.length ? Math.max(0, (latestTime - timestampValue(postExcursion[0].timestamp)) / 60000) : 0;
+    const recoveryHeld = recoveryMinutes >= recoveryHoldMinutes;
+    const latestStatus = latest.operational_status || 'NORMAL';
+    let trendKey = 'stable';
+    if (latestStatus === 'ENERGY_WASTE') trendKey = 'energy_waste';
+    else if (latestStatus === 'OFFLINE') trendKey = 'offline';
+    else if (latestStatus === 'SENSOR_FAULT') trendKey = 'sensor_fault';
+    else if (latest.status === 'TOO_WARM') trendKey = 'too_warm';
+    else if (latest.status === 'TOO_COLD') trendKey = 'too_cold';
+    else if (previousExcursion && recoveryHeld && postExcursion.length >= 2 && Math.abs(Number(postExcursion.at(-1).temperature_c) - Number(postExcursion[0].temperature_c)) < 0.15) trendKey = 'stable';
+    else if (previousExcursion && Number.isFinite(deltaC) && deltaC < -0.15 && !recoveryHeld) trendKey = 'recovering';
+    else if (Number.isFinite(deltaC) && deltaC >= POD_RAPID_CHANGE_C) trendKey = 'rapid_warming';
+    else if (Number.isFinite(deltaC) && deltaC <= -POD_RAPID_CHANGE_C) trendKey = 'rapid_cooling';
+    else if (Number.isFinite(deltaC) && deltaC >= 0.15) trendKey = 'warming';
+    else if (Number.isFinite(deltaC) && deltaC <= -0.15) trendKey = 'cooling';
+    else if (latestStatus === 'WARNING' || String(latest.uncertainty_status || '').startsWith('BORDERLINE')) trendKey = 'borderline';
+    const copy = podTrendMessage(latest, trendKey);
+    return {
+      latest,
+      operationalStatus: latestStatus,
+      trendKey,
+      trendMessage: copy.message,
+      recommendation: copy.recommendation,
+      recentEvents,
+      chartEvents,
+      slopeCPerHour,
+      deltaC,
+      observedMinutes,
+      trendWindowMinutes,
+      chartWindowMinutes,
+      recoveryHoldMinutes,
+    };
+  }
+
   function summarizeSensors(events) {
     const groups = new Map();
     sortedEvents(events).forEach((event) => {
@@ -269,10 +373,11 @@
     });
   }
 
-  function buildChartSeries(events, selectedSensors) {
+  function buildChartSeries(events, selectedSensors, options = {}) {
     const sensors = selectedSensors && selectedSensors.length
       ? selectedSensors
       : summarizeSensors(events).slice(0, 6).map((sensor) => sensor.sensorName);
+    const maxPoints = Math.max(2, Math.floor(Number(options.maxPoints ?? 180)));
     const byTimestamp = new Map();
     sortedEvents(events).forEach((event) => {
       if (!sensors.includes(event.sensor_name)) return;
@@ -282,21 +387,21 @@
       bucket.set(event.sensor_name, values);
       byTimestamp.set(event.timestamp, bucket);
     });
-    const labels = [];
-    Array.from(byTimestamp.entries()).forEach(([timestamp, bucket]) => {
-      const occurrences = Math.max(...sensors.map((sensor) => (bucket.get(sensor) || []).length), 1);
-      for (let occurrence = 0; occurrence < occurrences; occurrence += 1) labels.push({ timestamp, occurrence });
+    const entries = Array.from(byTimestamp.entries());
+    const pointCount = Math.min(maxPoints, entries.length);
+    const buckets = Array.from({ length: pointCount }, (_, index) => {
+      const start = Math.floor(index * entries.length / pointCount);
+      const end = Math.max(start + 1, Math.floor((index + 1) * entries.length / pointCount));
+      return entries.slice(start, end);
     });
+    const labels = buckets.map((bucket) => bucket.at(-1)?.[0] || '');
     return {
-      labels: labels.map((point) => point.timestamp),
+      labels,
       series: sensors.map((sensorName) => ({
         sensorName,
-        values: labels.map((label, index) => {
-          const point = labels[index];
-          const bucket = byTimestamp.get(point.timestamp);
-          const values = bucket?.get(sensorName) || [];
-          const prior = labels.slice(0, index).filter((candidate) => candidate.timestamp === point.timestamp).length;
-          return values[prior] ?? null;
+        values: buckets.map((bucket) => {
+          const values = bucket.flatMap(([, timestampBucket]) => timestampBucket.get(sensorName) || []).filter(Number.isFinite);
+          return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
         }),
       })),
     };
@@ -426,6 +531,11 @@
     parseTemperatureEvents,
     summarizeSensors,
     buildChartSeries,
+    buildPodSummary,
+    POD_TREND_WINDOW_MINUTES,
+    POD_CHART_WINDOW_MINUTES,
+    POD_RECOVERY_HOLD_MINUTES,
+    POD_RAPID_CHANGE_C,
     buildStatusCounts,
     buildScenarioCounts,
     scenarioDisplayKey,

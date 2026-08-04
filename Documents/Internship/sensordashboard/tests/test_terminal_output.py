@@ -41,10 +41,10 @@ class TerminalOutputTests(unittest.TestCase):
         self.assertIn("scenario      : mixed", output)
         self.assertIn("phase         : recovery", output)
         self.assertIn("temperature   : -78.50 °C", output)
-        self.assertIn("event_time    : 2026-07-29T12:00:00.123+00:00", output)
+        self.assertIn("event_time    : 2026-07-29 05:00:00.123 PDT", output)
         self.assertNotIn("source_time", output)
-        self.assertIn("received_at   : 2026-07-29T12:00:00.140+00:00", output)
-        self.assertIn("stored_at     : 2026-07-29T12:00:00.142+00:00", output)
+        self.assertIn("received_at   : 2026-07-29 05:00:00.140 PDT", output)
+        self.assertIn("stored_at     : 2026-07-29 05:00:00.142 PDT", output)
         self.assertIn("topic         : devices/temperature", output)
 
     def test_subscriber_defaults_to_live_verbose_output(self):

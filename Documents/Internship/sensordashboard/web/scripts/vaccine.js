@@ -17,10 +17,12 @@
   let stopWatching = null;
   let currentEndpoint = '/api/live';
   let responseScope = null;
+  let activePodButton = null;
 
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
   const formatC = (value) => Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}°C` : '—';
+  const eventTimeValue = (value) => { const parsed = Date.parse(String(value || '').replace(' ', 'T')); return Number.isFinite(parsed) ? parsed : 0; };
   const statusLabel = (status) => ({ STABLE: 'Stable', ACCEPTABLE: 'Acceptable', TOO_COLD: 'Too cold', TOO_WARM: 'Too warm', UNKNOWN: 'No reading' }[status] || status);
   const operationalLabel = (status) => data.operationalStatusLabel(status);
   const statusClass = (status) => String(status || 'UNKNOWN').toLowerCase().replace('_', '-');
@@ -54,21 +56,99 @@
     return String(status || 'UNKNOWN').toLowerCase().replaceAll('_', '-');
   }
 
+  function trendClass(trendKey) {
+    return `trend-${String(trendKey || 'stable').replaceAll('_', '-')}`;
+  }
+
+  function renderPodMiniChart(summary) {
+    const sourcePoints = summary.chartEvents || [];
+    const sensorName = sourcePoints[0]?.sensor_name || summary.latest?.sensor_name;
+    const compactChart = sensorName
+      ? data.buildChartSeries(sourcePoints, [sensorName], { maxPoints: 24 })
+      : { labels: [], series: [{ values: [] }] };
+    const points = compactChart.labels.map((timestamp, index) => ({
+      timestamp,
+      temperature_c: compactChart.series[0]?.values[index],
+    }));
+    const width = 270;
+    const height = 132;
+    const margin = { top: 18, right: 8, bottom: 24, left: 38 };
+    const plotWidth = width - margin.left - margin.right;
+    const plotHeight = height - margin.top - margin.bottom;
+    const values = points.map((event) => Number(event.temperature_c)).filter(Number.isFinite);
+    const bounds = [profile.lowerLimitC, profile.upperLimitC, profile.targetC, ...values].filter(Number.isFinite);
+    const rawMin = Math.min(...bounds, -80);
+    const rawMax = Math.max(...bounds, -60);
+    const padding = Math.max(1, (rawMax - rawMin) * 0.08);
+    const min = rawMin - padding;
+    const max = rawMax + padding;
+    const x = (index) => margin.left + (points.length <= 1 ? plotWidth / 2 : index * plotWidth / (points.length - 1));
+    const y = (value) => margin.top + (max - value) * plotHeight / (max - min);
+    const path = points.map((event, index) => `${index ? 'L' : 'M'}${x(index).toFixed(1)},${y(Number(event.temperature_c)).toFixed(1)}`).join(' ');
+    const yTicks = [];
+    [profile.upperLimitC, profile.targetC, profile.lowerLimitC]
+      .filter((value, index, list) => Number.isFinite(value) && list.indexOf(value) === index && value >= min && value <= max)
+      .sort((left, right) => right - left)
+      .forEach((tick) => {
+        if (yTicks.every((existing) => Math.abs(y(existing) - y(tick)) >= 15)) yTicks.push(tick);
+      });
+    const grid = yTicks.map((tick) => `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(tick).toFixed(1)}" y2="${y(tick).toFixed(1)}" stroke="${tick === profile.targetC ? 'rgba(251,191,36,.45)' : 'rgba(255,255,255,.12)'}" stroke-dasharray="${tick === profile.targetC ? '2 3' : '4 4'}"/><text x="${margin.left - 6}" y="${(y(tick) + 3).toFixed(1)}" text-anchor="end" fill="#9ca3af" font-size="9">${Number(tick).toFixed(0)}°</text>`).join('');
+    const firstTime = points[0] ? eventTimeValue(points[0].timestamp) : null;
+    const lastTime = points.at(-1) ? eventTimeValue(points.at(-1).timestamp) : null;
+    const elapsedMinutes = firstTime != null && lastTime != null ? Math.max(0, Math.round((lastTime - firstTime) / 60000)) : 0;
+    const axis = `<line x1="${margin.left}" x2="${width - margin.right}" y1="${height - margin.bottom}" y2="${height - margin.bottom}" stroke="rgba(255,255,255,.2)"/><text x="${margin.left}" y="${height - 7}" fill="#6b7280" font-size="9">-${elapsedMinutes}m</text><text x="${width - margin.right}" y="${height - 7}" text-anchor="end" fill="#6b7280" font-size="9">now</text><text x="${width / 2}" y="${height - 7}" text-anchor="middle" fill="#6b7280" font-size="9">time</text><text x="10" y="${height / 2}" text-anchor="middle" transform="rotate(-90 10 ${height / 2})" fill="#6b7280" font-size="9">°C</text>`;
+    const line = path ? `<path d="${path}" fill="none" stroke="${summary.trendKey === 'rapid_warming' || summary.trendKey === 'too_warm' ? '#fb7185' : summary.trendKey === 'rapid_cooling' || summary.trendKey === 'too_cold' ? '#60a5fa' : '#c4b5fd'}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` : '';
+    const empty = points.length ? '' : `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" fill="#6b7280" font-size="10">Waiting for trend data</text>`;
+    return `<svg class="pod-mini-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(summary.trendMessage)} over the last ${summary.chartWindowMinutes} minutes"><text x="${margin.left}" y="10" fill="#9ca3af" font-size="9">${summary.chartWindowMinutes} min context</text>${grid}${axis}${line}${empty}</svg>`;
+  }
+
+  function positionPodHover(button) {
+    const card = button.querySelector('.pod-hover-card');
+    if (!card) return;
+    activePodButton = button;
+    const rect = button.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+    const cardWidth = Math.min(300, Math.max(220, viewportWidth - 24));
+    const cardHeight = Math.max(card.offsetHeight, 280);
+    const gap = 10;
+    const canFitAbove = rect.top >= cardHeight + gap;
+    const canFitBelow = viewportHeight - rect.bottom >= cardHeight + gap;
+    const placeAbove = canFitAbove || !canFitBelow;
+    const centerX = Math.min(
+      Math.max(rect.left + rect.width / 2, cardWidth / 2 + 12),
+      viewportWidth - cardWidth / 2 - 12,
+    );
+    card.classList.toggle('above', placeAbove);
+    card.style.left = `${centerX}px`;
+    card.style.top = `${placeAbove ? rect.top - gap : rect.bottom + gap}px`;
+  }
+
   function renderPodGrid() {
     const target = $('podGrid');
     if (!target) return;
     const pods = latestPodEvents();
     target.innerHTML = pods.length ? pods.map((event) => {
-      const status = event.operational_status || 'NORMAL';
-      const alert = event.rule_alert ? event.rule_alert.replaceAll('_', ' ') : '';
-      return `<button class="pod-tile ${podClass(status)}" type="button" data-pod="${esc(event.sensor_name)}" aria-label="${esc(event.sensor_name)} ${esc(operationalLabel(status))}">
+      const history = sorted(events.filter((historyEvent) => historyEvent.sensor_name === event.sensor_name));
+      const summary = data.buildPodSummary(history, profile);
+      const status = summary.operationalStatus || event.operational_status || 'NORMAL';
+      const attentionClass = summary.trendKey === 'stable' ? '' : ' needs-attention';
+      return `<button class="pod-tile ${podClass(status)} ${trendClass(summary.trendKey)}${attentionClass}" type="button" data-pod="${esc(event.sensor_name)}" aria-label="${esc(event.sensor_name)} ${esc(operationalLabel(status))}: ${esc(summary.trendMessage)}">
         <span class="pod-tile-head"><span class="pod-id">${esc(event.sensor_name)}</span><span class="pod-icon" aria-hidden="true">${OPERATIONAL_STATUS_ICONS[status] || '?'}</span></span>
         <span class="pod-temperature">${formatC(event.temperature_c)}</span>
         <span class="pod-state">${esc(operationalLabel(status))} · ${esc(event.occupancy_state || 'loaded')}</span>
-        <span class="pod-alert">${esc(alert || event.scenario_phase || event.scenario || 'No alert')}</span>
+        <span class="pod-alert">${esc(summary.trendMessage)}</span>
+        <span class="pod-hover-card" role="tooltip"><span class="pod-hover-title">${esc(summary.trendMessage)}</span>${renderPodMiniChart(summary)}<span class="pod-hover-meta">${Number.isFinite(summary.deltaC) ? `${summary.deltaC >= 0 ? '+' : ''}${summary.deltaC.toFixed(2)}°C over ${Math.round(summary.observedMinutes)} min` : 'No recent trend available'}</span><span class="pod-hover-action"><b>Next step</b> ${esc(summary.recommendation)}</span></span>
       </button>`;
     }).join('') : '<div class="detail-muted">No persisted Pods match this scope.</div>';
-    target.querySelectorAll('[data-pod]').forEach((button) => button.addEventListener('click', () => openPodDetails(button.dataset.pod)));
+    target.querySelectorAll('[data-pod]').forEach((button) => {
+      button.addEventListener('click', () => openPodDetails(button.dataset.pod));
+      button.addEventListener('mouseenter', () => positionPodHover(button));
+      button.addEventListener('focus', () => positionPodHover(button));
+      button.addEventListener('mouseleave', () => {
+        if (activePodButton === button) activePodButton = null;
+      });
+    });
   }
 
   function formatDateTime(value) {
@@ -81,8 +161,9 @@
     const history = sorted(events.filter((event) => event.sensor_name === sensorName));
     const latest = history.at(-1);
     if (!latest) return;
+    const summary = data.buildPodSummary(history, profile);
     const detail = $('podDetailBackdrop');
-    const status = latest.operational_status || 'NORMAL';
+    const status = summary.operationalStatus || latest.operational_status || 'NORMAL';
     $('podDetailTitle').textContent = latest.sensor_name;
     $('podDetailStatus').textContent = `${OPERATIONAL_STATUS_ICONS[status] || '?'} ${operationalLabel(status)}`;
     $('podDetailStatus').style.background = `${OPERATIONAL_STATUS_COLORS[status] || '#6b7280'}22`;
@@ -99,10 +180,11 @@
       ['Deviation', deviation == null ? '—' : `${deviation >= 0 ? '+' : ''}${deviation.toFixed(2)}°C from target`],
       ['Scenario', latest.scenario],
       ['Phase', latest.scenario_phase || '—'],
+      ['Trend', summary.trendMessage],
+      ['Next step', summary.recommendation],
       ['Last event', formatDateTime(latest.event_time)],
     ].map(([label, value]) => `<div><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join('');
-    const trend = history.slice(-8).map((event) => `${formatC(event.temperature_c)} · ${formatDateTime(event.event_time)}`).join('<br>');
-    $('podDetailTrend').innerHTML = trend || 'No trend data in this scope.';
+    $('podDetailTrend').innerHTML = `${renderPodMiniChart(summary)}<div class="detail-muted">${esc(summary.trendMessage)} · ${esc(summary.recommendation)}</div>`;
     $('podDetailAlerts').innerHTML = latest.rule_alert
       ? `<div class="detail-alert">${esc(latest.rule_alert.replaceAll('_', ' '))}<br><small>Severity: ${esc(latest.severity || 'warning')}</small></div>`
       : '<div class="detail-ok">No active rule-based alerts.</div>';
@@ -171,6 +253,7 @@
     const end = new Date();
     const start = new Date(end);
     if (range === 'today') start.setHours(0, 0, 0, 0);
+    if (range === '6h') start.setHours(start.getHours() - 6);
     if (range === '24h') start.setHours(start.getHours() - 24);
     if (range === 'week') { start.setDate(start.getDate() - ((start.getDay() + 6) % 7)); start.setHours(0, 0, 0, 0); }
     if (range === 'month') { start.setDate(1); start.setHours(0, 0, 0, 0); }
@@ -252,7 +335,7 @@
 
   function renderTemperatureChart() {
     const target = $('temperatureChart');
-    const chart = data.buildChartSeries(events, selectedSensors);
+    const chart = data.buildChartSeries(events, selectedSensors, { maxPoints: 180 });
     const width = Math.max(target.clientWidth || 620, 320);
     const height = 340;
     target.style.height = `${height}px`;
@@ -442,10 +525,26 @@
     if (typeof global.requestAnimationFrame === 'function') global.requestAnimationFrame(draw); else setTimeout(draw, 16);
   }
 
+  window.addEventListener('scroll', () => {
+    if (activePodButton) positionPodHover(activePodButton);
+  }, true);
+  window.addEventListener('resize', () => {
+    if (activePodButton) positionPodHover(activePodButton);
+  });
+
   $('exportButton').addEventListener('click', async () => {
     try {
       await bridge.exportAllEvents();
       showToast('Exported all PostgreSQL events.');
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+
+  $('exportColabButton').addEventListener('click', async () => {
+    try {
+      await bridge.exportColabTrainingCsv();
+      showToast('Downloaded Test1_TempCO2O2.csv for Colab.');
     } catch (error) {
       showToast(error.message);
     }

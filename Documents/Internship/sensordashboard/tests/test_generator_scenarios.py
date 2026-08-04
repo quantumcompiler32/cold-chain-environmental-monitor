@@ -1,9 +1,12 @@
+import json
 import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
+
+import pandas as pd
 
 from services.temperature_event_generator import (
     load_temperature_data,
@@ -45,6 +48,23 @@ class GeneratorScenarioTests(unittest.TestCase):
             )
         )
 
+    def test_warning_stays_in_range_but_crosses_sensor_uncertainty_boundary(self):
+        event = make_event(
+            "Pod1",
+            self.row,
+            self.profile,
+            "warning",
+            event_number=1,
+            total_events=1,
+            event_time=self.event_time,
+            batch_id="DEMO-BATCH",
+        )
+
+        self.assertEqual(event["status"], "ACCEPTABLE")
+        self.assertEqual(event["operational_status"], "WARNING")
+        self.assertEqual(event["severity"], "warning")
+        self.assertEqual(event["rule_alert"], "TEMPERATURE_BOUNDARY_RISK")
+
     def test_mixed_has_normal_failure_and_recovery_phases(self):
         events = [
             make_event("Pod1", self.row, self.profile, "mixed", event_number=index, total_events=9, event_time=self.event_time)
@@ -63,6 +83,87 @@ class GeneratorScenarioTests(unittest.TestCase):
         self.assertEqual(args.count, 9)
         self.assertIsNone(args.seed)
         self.assertEqual(args.output_mode, "summary")
+
+    def test_cli_accepts_multiple_pods_in_one_run(self):
+        with patch.object(
+            sys,
+            "argv",
+            ["generator", "--sensor", "Pod1", "Pod2", "Pod3", "--count", "9"],
+        ):
+            args = parse_arguments()
+
+        self.assertEqual(args.sensor, ["Pod1", "Pod2", "Pod3"])
+
+    def test_cli_accepts_comma_separated_pods(self):
+        with patch.object(
+            sys,
+            "argv",
+            ["generator", "--sensor", "Pod1,Pod2", "Pod3", "--count", "9"],
+        ):
+            args = parse_arguments()
+
+        self.assertEqual(args.sensor, ["Pod1", "Pod2", "Pod3"])
+
+    def test_main_publishes_each_round_to_every_selected_pod(self):
+        class PublishResult:
+            rc = 0
+
+            def wait_for_publish(self):
+                return None
+
+        class FakeClient:
+            def __init__(self):
+                self.messages = []
+
+            def connect(self, *_args):
+                return None
+
+            def loop_start(self):
+                return None
+
+            def publish(self, _topic, payload, qos=0):
+                self.messages.append(json.loads(payload))
+                return PublishResult()
+
+            def loop_stop(self):
+                return None
+
+            def disconnect(self):
+                return None
+
+        fake_client = FakeClient()
+        pod_readings = pd.DataFrame({"temperature_c": [-78.5, -78.4]})
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "generator",
+                "--sensor",
+                "Pod1",
+                "Pod2",
+                "--count",
+                "2",
+                "--interval-ms",
+                "0",
+                "--output-mode",
+                "none",
+            ],
+        ), patch(
+            "services.temperature_event_generator.mqtt.Client",
+            return_value=fake_client,
+        ), patch(
+            "services.temperature_event_generator.load_temperature_data",
+            side_effect=[("Pod1", pod_readings), ("Pod2", pod_readings)],
+        ):
+            from services.temperature_event_generator import main
+
+            self.assertEqual(main(), 0)
+
+        self.assertEqual(
+            [event["sensor_name"] for event in fake_client.messages],
+            ["Pod1", "Pod2", "Pod1", "Pod2"],
+        )
 
     def test_csv_temperature_guidance_does_not_require_or_import_a_timestamp(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

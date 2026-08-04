@@ -10,9 +10,10 @@
   <link rel="stylesheet" href="../styles/vaccine-monitoring.css?v=monitoring-1">
   <link rel="stylesheet" href="../styles/phase1-vaccine-skin.css?v=phase1-skin-1">
 </head>
-<body>
+<body data-vaccine-view="analytics">
   <main class="tab-panel active">
     <div class="content-scroll vaccine-page">
+      <div data-vaccine-tabs></div>
       <header class="page-header">
         <div>
           <div class="eyebrow"><span class="demo-pill" id="modePill">POSTGRESQL</span><span id="dataMode">Waiting for PostgreSQL events</span></div>
@@ -20,8 +21,8 @@
           <p>Analyze persisted vaccine events, pod health, scenarios, and temperature trends. The event pipeline runs independently in the terminal.</p>
         </div>
         <div class="header-actions">
-          <button class="button primary" id="exportButton" type="button">Export PostgreSQL CSV</button>
-          <a class="button secondary" href="domain-vaccine-raw.html">Raw events</a>
+          <button class="button primary" id="exportColabButton" type="button">Download Colab CSV</button>
+          <button class="button secondary" id="exportButton" type="button">Export PostgreSQL CSV</button>
           <span class="bridge-status offline" id="bridgeStatus"><i></i>PostgreSQL unavailable</span>
         </div>
       </header>
@@ -33,6 +34,7 @@
         </div>
         <div class="filter-row preset-row" role="group" aria-label="Time presets">
           <button class="filter-preset active" type="button" data-range="live">Live</button>
+          <button class="filter-preset" type="button" data-range="6h">Last 6 hours</button>
           <button class="filter-preset" type="button" data-range="today">Today</button>
           <button class="filter-preset" type="button" data-range="24h">Last 24 hours</button>
           <button class="filter-preset" type="button" data-range="week">This week</button>
@@ -44,7 +46,7 @@
           <label>Pod <select id="filterPod"><option value="">All Pods</option></select></label>
           <label>Vaccine <select id="filterVaccine"><option value="">All vaccines</option></select></label>
           <label>Batch <input id="filterBatch" type="text" placeholder="Any batch"></label>
-          <label>Scenario <select id="filterScenario"><option value="">All scenarios</option><option value="normal">Normal</option><option value="recovery">Recovery</option><option value="mixed">Mixed</option><option value="outlier">Outlier</option></select></label>
+          <label>Scenario <select id="filterScenario"><option value="">All scenarios</option><option value="normal">Normal</option><option value="warning">Warning</option><option value="recovery">Recovery</option><option value="mixed">Mixed</option><option value="outlier">Outlier</option></select></label>
           <label>Severity <select id="filterSeverity"><option value="">All severities</option><option value="info">Info</option><option value="warning">Warning</option><option value="critical">Critical</option></select></label>
           <button class="button primary filter-apply" id="applyFilters" type="button">Apply filters</button>
           <button class="button secondary" id="clearFilters" type="button">Clear</button>
@@ -53,7 +55,7 @@
 
       <section class="card pod-monitor-card" aria-label="Pod heatmap">
         <div class="card-heading">
-          <div><div class="card-title">Pod status grid</div><div class="card-sub">Click a Pod for temperature, batch, alerts, trend, and inference state.</div></div>
+          <div><div class="card-title">Pod status grid</div><div class="card-sub">Pods stay in numeric order. Hover for the temperature trend and next step; click for full details.</div></div>
           <div class="status-legend" aria-label="Pod status legend">
             <span><i class="legend-swatch normal"></i>Normal</span><span><i class="legend-swatch warning"></i>Warning</span><span><i class="legend-swatch critical"></i>Critical</span><span><i class="legend-swatch offline"></i>Offline</span><span><i class="legend-swatch empty"></i>Empty</span><span><i class="legend-swatch energy-waste"></i>Energy waste</span>
           </div>
@@ -161,11 +163,12 @@
       <div class="detail-grid" id="podDetailGrid"></div>
       <div class="detail-section"><strong>Temperature trend</strong><div class="detail-trend" id="podDetailTrend"></div></div>
       <div class="detail-section"><strong>Alerts</strong><div id="podDetailAlerts"></div></div>
-      <div class="detail-section"><strong>ML inference</strong><div class="detail-muted">Not deployed in this implementation slice.</div></div>
+      <div class="detail-section"><strong>ML inference</strong><div class="detail-muted">Use the Inference tab for one-event advisory analysis.</div></div>
     </section>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="../scripts/vaccine-navigation.js?v=three-tabs-1"></script>
   <script src="../scripts/vaccine-data.js?v=readonly-1"></script>
   <script src="../scripts/vaccine-bridge.js?v=readonly-1"></script>
   <script src="../scripts/vaccine.js?v=readonly-2"></script>

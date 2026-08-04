@@ -1,6 +1,6 @@
 /* Prototype-only temperature trend chart labels, axes, and range context. */
 .proto-trend-chart {
-  background: linear-gradient(180deg, rgba(96,165,250,.08), rgba(16,185,129,.03));
+  background: rgba(96,165,250,.08);
   border: 1px solid rgba(255,255,255,.08);
   border-radius: 7px;
   height: 235px;

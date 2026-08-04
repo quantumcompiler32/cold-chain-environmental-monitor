@@ -5,9 +5,11 @@
 
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
-  const MAX_VISIBLE_EVENTS = 5000;
+  const MAX_VISIBLE_EVENTS = 250;
   let events = [];
   let newestEventKey = null;
+  let renderQueued = false;
+  let queuedFollow = false;
 
   const formatTime = (value) => {
     const date = new Date(value);
@@ -22,7 +24,7 @@
     global.requestAnimationFrame(() => { stream.scrollTop = 0; });
   }
 
-  function render({ follow = false } = {}) {
+  function renderNow({ follow = false } = {}) {
     const stream = $('rawStream');
     const previousScrollTop = stream.scrollTop;
     const sensors = [...new Set(events.map((event) => event.sensor_name))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -47,16 +49,24 @@
         && (phaseFilter.value === 'all' || phase === phaseFilter.value);
     });
     const visible = matching.slice(0, MAX_VISIBLE_EVENTS);
-    stream.innerHTML = visible.map((event) => {
+    stream.innerHTML = visible.map((event, index) => {
       const condition = statusClass(event.status);
       const uncertainty = event.uncertainty_status ? '<span class="raw-uncertainty">' + esc(event.uncertainty_status.replaceAll('_', ' ')) + '</span>' : '';
       return '<article class="raw-row readable-raw-row">'
         + '<div class="raw-event-main"><div><span class="raw-event-time">' + esc(formatTime(event.event_time)) + '</span><strong>' + esc(event.sensor_name || 'Unknown sensor') + '</strong></div>'
         + '<span class="raw-temperature">' + esc(formatTemperature(event.temperature_c)) + '</span><span class="condition ' + condition + '">' + esc(String(event.status || 'UNKNOWN').replaceAll('_', ' ')) + '</span></div>'
         + '<div class="raw-event-details"><span><b>Vaccine</b>' + esc(event.vaccine_type || '—') + '</span><span><b>Scenario</b>' + esc(event.scenario || '—') + '</span><span><b>Phase</b>' + esc(event.scenario_phase || '—') + '</span><span><b>Occupancy / batch</b>' + esc((event.occupancy_state || '—') + ' / ' + (event.batch_id || '—')) + '</span><span><b>Pod status</b>' + esc(event.operational_status || '—') + '</span><span><b>Severity / alert</b>' + esc((event.severity || '—') + ' / ' + (event.rule_alert || '—')) + '</span><span><b>Event ID</b>' + esc(event.event_id || '—') + '</span><span><b>Received</b>' + esc(formatTime(event.received_at)) + '</span><span><b>Stored</b>' + esc(formatTime(event.stored_at)) + '</span>' + uncertainty + '</div>'
-        + '<details class="raw-payload"><summary>View stored payload</summary><pre>' + esc(JSON.stringify(event, null, 2)) + '</pre></details>'
+        + '<details class="raw-payload" data-event-index="' + index + '"><summary>View stored payload</summary><pre></pre></details>'
         + '</article>';
     }).join('') || '<div class="empty">No PostgreSQL events match these filters.</div>';
+    stream.querySelectorAll('.raw-payload').forEach((details) => details.addEventListener('toggle', () => {
+      if (!details.open || details.dataset.loaded === 'true') return;
+      const event = visible[Number(details.dataset.eventIndex)];
+      const payload = details.querySelector('pre');
+      if (!event || !payload) return;
+      payload.textContent = JSON.stringify(event, null, 2);
+      details.dataset.loaded = 'true';
+    }));
     $('rowCount').textContent = (matching.length > MAX_VISIBLE_EVENTS ? MAX_VISIBLE_EVENTS + ' of ' : '') + matching.length.toLocaleString();
     $('rawContext').textContent = matching.length > MAX_VISIBLE_EVENTS
       ? 'Rendering the newest ' + MAX_VISIBLE_EVENTS + ' matching events. Expand one row only when you need its raw JSON.'
@@ -66,6 +76,20 @@
     $('rawSource').textContent = 'POSTGRESQL';
     $('rawMode').textContent = 'POSTGRESQL';
     if (follow) followNewest(); else stream.scrollTop = previousScrollTop;
+  }
+
+  function render(options = {}) {
+    queuedFollow = queuedFollow || Boolean(options.follow);
+    if (renderQueued) return;
+    renderQueued = true;
+    const draw = () => {
+      renderQueued = false;
+      const follow = queuedFollow;
+      queuedFollow = false;
+      renderNow({ follow });
+    };
+    if (typeof global.requestAnimationFrame === 'function') global.requestAnimationFrame(draw);
+    else setTimeout(draw, 16);
   }
 
   $('rawSensorFilter').addEventListener('change', render);

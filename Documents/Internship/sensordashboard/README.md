@@ -5,8 +5,10 @@ simulates Pod temperature events, transports them through MQTT, validates and
 persists them in PostgreSQL, and presents the persisted evidence through a
 read-only dashboard adapter.
 
-ML retraining, model deployment, and live inference are intentionally deferred
-from the current implementation slice.
+The dashboard now includes a small, educational ML inference path. Training is
+an explicit one-time step; the standalone service only loads saved artifacts
+and scores one event at a time. The service is read-only and does not change
+PostgreSQL events or vaccine disposition.
 
 ## Architecture and data flow
 
@@ -66,6 +68,18 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
+Train the local model bundle once before starting the inference service:
+
+```bash
+make train-models
+```
+
+This reads the bundled Pod CSV, converts Fahrenheit readings to Celsius, uses
+Pod temperature features only, and writes local artifacts under `models/`.
+Generated artifacts are ignored by Git and can be recreated at any time.
+Use `make train-models VACCINE=moderna` when the model label should use the
+Moderna profile range instead.
+
 Supported environment variables:
 
 ```text
@@ -84,6 +98,15 @@ MQTT_TOPIC=devices/temperature
 
 Run each long-running command in its own terminal.
 
+Once the listener, dashboard bridge, and website are running, this single
+command demos every Pod-grid status and fills Pods 1–20:
+
+```bash
+make demo-all COUNT=30 INTERVAL_MS=200 OUTPUT_MODE=summary
+```
+
+Use `COUNT=10` for a faster run.
+
 ```bash
 cd /Users/mokshjoshi/Documents/Internship/sensordashboard
 source .venv/bin/activate
@@ -96,6 +119,32 @@ python3 scripts/verify_persistence.py
 python3 -m services.dashboard_bridge
 ```
 
+Start the ML inference service in another terminal:
+
+```bash
+python3 -m services.ml_service
+```
+
+It listens on `http://127.0.0.1:5000` by default. The Phase 1 Interpretation
+tab submits one simple event to `POST /api/predict`; it may include recent
+context automatically. `GET /health` reports whether the saved model bundle is
+loaded.
+
+To run several Pods from one terminal, list them after `--sensor`. The count
+is per Pod, and one event is published for each selected Pod on every interval:
+
+```bash
+python3 -m services.temperature_event_generator \
+  --sensor Pod1 Pod2 Pod3 \
+  --scenario mixed \
+  --count 30 \
+  --interval-ms 100 \
+  --seed 42 \
+  --output-mode summary
+```
+
+Comma-separated Pods work too: `--sensor Pod1,Pod2,Pod3`.
+
 Serve the browser in another terminal:
 
 ```bash
@@ -107,9 +156,10 @@ Open <http://127.0.0.1:8765/index.html> for analytics or
 <http://127.0.0.1:8765/pages/domain-vaccine-raw.html> for the live raw event
 stream.
 
-The generator supports four current user-facing scenarios:
+The generator supports five current user-facing scenarios:
 
 - `normal`: translated source variation stays inside the vaccine profile range.
+- `warning`: stays inside the range while the ±0.5°C sensor uncertainty crosses the warm boundary.
 - `recovery`: begins above the safe range and moves back toward the profile target.
 - `mixed`: deterministic normal, cooling-failure, and recovery phases.
 - `outlier`: every event is intentionally outside the safe range, alternating cold and warm readings.
@@ -119,10 +169,15 @@ The analytics chart splits a mixed run into `Normal`, `Cooling failure`, and
 scenario. The raw event page shows both fields and the complete persisted
 event payload.
 
+ML results are advisory `ML-assisted analysis`. Logistic regression is the
+primary event result; linear regression and k-means provide secondary context.
+Results identify their model version, validation measure, and data basis, and
+return an explicit insufficient-data state when context is not available.
+
 The public CLI controls are:
 
 ```text
---scenario normal|recovery|mixed|outlier
+--scenario normal|warning|recovery|mixed|outlier
 --vaccine pfizer_ultralow|moderna
 --count N
 --interval-ms N

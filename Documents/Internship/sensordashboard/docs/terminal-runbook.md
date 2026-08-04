@@ -1,6 +1,6 @@
 # Cold-chain demo terminal runbook
 
-This is the direct command guide. It does not use Make commands.
+This is the direct command guide, with one Make shortcut for the combined demo.
 
 Project folder:
 
@@ -8,9 +8,25 @@ Project folder:
 /Users/mokshjoshi/Documents/Internship/sensordashboard
 ```
 
-The four scenarios are:
+## One-command full status demo
+
+After the listener, dashboard backend, and dashboard website are running, use
+this from the project folder. It fills Pod1–Pod20 and leaves the grid showing
+normal, warning, critical, offline, empty, and energy-waste states:
+
+```bash
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+source .venv/bin/activate
+make demo-all COUNT=30 INTERVAL_MS=200 OUTPUT_MODE=summary
+```
+
+Use `COUNT=10` for a faster demo. The command runs all generator cases in one
+terminal; it does not require separate generator terminals.
+
+The five scenarios are:
 
 - `normal`: readings stay in the safe range.
+- `warning`: readings stay in range while sensor uncertainty crosses a boundary.
 - `recovery`: readings start warm and move back toward the target.
 - `mixed`: one run split into normal, cooling failure, and recovery phases.
 - `outlier`: every reading is outside the safe range, alternating cold and warm.
@@ -30,6 +46,21 @@ brew services start postgresql@16
 brew services start mosquitto
 APP_ENV=demo .venv/bin/python scripts/reset_demo.py --confirm-reset
 ```
+
+### Train the model bundle
+
+Run this once after installing dependencies, or again when the source CSV or
+training behavior changes:
+
+```bash
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+source .venv/bin/activate
+make train-models
+```
+
+The command saves local model artifacts under `models/`. It does not connect to
+PostgreSQL or modify dashboard events. The default label uses the Pfizer
+ultralow profile; pass `VACCINE=moderna` to train against the Moderna range.
 
 ### Terminal 1: listener
 
@@ -63,10 +94,32 @@ http://127.0.0.1:8765/index.html
 http://127.0.0.1:8765/pages/domain-vaccine-raw.html
 ```
 
+### Terminal 4: ML inference service
+
+Start this after training the model bundle:
+
+```bash
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+source .venv/bin/activate
+python3 -m services.ml_service
+```
+
+Check readiness:
+
+```bash
+curl http://127.0.0.1:5000/health
+```
+
+Open the Phase 1 local UI at `/phase1-stitch-ui/#interpretation`. Fill in the
+Pod, temperature, vaccine, and scenario fields, then choose `Predict event`.
+The form sends one event plus recent dashboard context and displays the
+logistic result first. The service only returns analysis; it does not persist
+the submitted event.
+
 The raw page updates as soon as an event is stored. It does not wait for a
 five-second poll.
 
-### Terminal 4: run a scenario
+### Terminal 5: run a scenario
 
 Normal:
 
@@ -97,6 +150,24 @@ python3 -m services.temperature_event_generator \
   --seed 42 \
   --output-mode verbose
 ```
+
+Warning:
+
+```bash
+cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+source .venv/bin/activate
+python3 -m services.temperature_event_generator \
+  --sensor Pod1 \
+  --vaccine pfizer_ultralow \
+  --scenario warning \
+  --count 30 \
+  --interval-ms 100 \
+  --seed 42 \
+  --output-mode verbose
+```
+
+Warning stays inside the stored range, but the sensor uncertainty interval
+crosses the warm boundary, producing a warning rather than a critical event.
 
 Mixed:
 
@@ -186,6 +257,13 @@ curl 'http://127.0.0.1:8787/api/verification/latest-events'
 curl -o vaccine_events.csv 'http://127.0.0.1:8787/api/events/export.csv'
 ```
 
+The ML service uses a separate port and endpoint:
+
+```text
+GET  http://127.0.0.1:5000/health
+POST http://127.0.0.1:5000/api/predict
+```
+
 To watch the live event stream directly:
 
 ```bash
@@ -209,6 +287,29 @@ Run these from the project folder after activating the environment:
 ```bash
 cd /Users/mokshjoshi/Documents/Internship/sensordashboard
 source .venv/bin/activate
+```
+
+### Run multiple Pods together
+
+Use one generator process and list the Pods after `--sensor`. The count is per
+Pod, so this publishes 30 readings for each Pod while keeping the same interval
+between rounds:
+
+```bash
+python3 -m services.temperature_event_generator \
+  --sensor Pod1 Pod2 Pod3 \
+  --vaccine pfizer_ultralow \
+  --scenario mixed \
+  --count 30 \
+  --interval-ms 100 \
+  --seed 42 \
+  --output-mode summary
+```
+
+You can also write the list as `--sensor Pod1,Pod2,Pod3`. With Make:
+
+```bash
+make run-scenario SENSORS="Pod1 Pod2 Pod3" SCENARIO=mixed COUNT=30 INTERVAL_MS=100
 ```
 
 Summary mode avoids printing every event:

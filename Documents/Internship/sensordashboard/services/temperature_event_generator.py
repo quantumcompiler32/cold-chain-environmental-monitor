@@ -5,10 +5,10 @@ High-school version: this is a pretend sensor. It reads old measurements from
 a spreadsheet, changes them for a chosen experiment, packages each one as
 JSON, and mails that message to MQTT.
 
-The generator is the simulation side of the pipeline. It reads one sensor
-column from the source CSV, converts Fahrenheit to Celsius, applies the
-requested scenario, classifies the resulting temperature, and publishes a
-JSON event to the shared MQTT topic.
+The generator is the simulation side of the pipeline. It reads one or more
+sensor columns from the source CSV, converts Fahrenheit to Celsius, applies
+the requested scenario, classifies the resulting temperature, and publishes
+JSON events to the shared MQTT topic.
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ SOURCE_PROFILE_TARGET_C = -78.5
 STABLE_TOLERANCE_C = 1.0
 OUTLIER_OFFSET_C = 1.0
 FAILURE_OFFSET_C = 5.0
-SCENARIOS = ("normal", "recovery", "mixed", "outlier")
+SCENARIOS = ("normal", "warning", "recovery", "mixed", "outlier")
 
 
 @dataclass(frozen=True)
@@ -137,6 +137,24 @@ def resolve_profile(
     )
 
 
+def normalize_sensor_names(sensor_values: list[str]) -> list[str]:
+    """Expand repeated/comma-separated sensor arguments without duplicates."""
+    names: list[str] = []
+    seen: set[str] = set()
+    for value in sensor_values:
+        for candidate in value.split(","):
+            name = candidate.strip()
+            if not name:
+                continue
+            key = name.casefold()
+            if key not in seen:
+                names.append(name)
+                seen.add(key)
+    if not names:
+        raise ValueError("Provide at least one Pod after --sensor.")
+    return names
+
+
 def parse_arguments() -> argparse.Namespace:
     """Read the command-line controls used to build the simulation."""
     # argparse converts Terminal text such as --max-events 20 into Python
@@ -146,8 +164,13 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--sensor",
-        default=DEFAULT_SENSOR,
-        help=f"Temperature column, for example Pod1 or Ambient (default: {DEFAULT_SENSOR}).",
+        nargs="+",
+        default=[DEFAULT_SENSOR],
+        metavar="POD",
+        help=(
+            "Pod temperature columns, for example Pod1 Pod2 Pod3; "
+            f"comma-separated values also work (default: {DEFAULT_SENSOR})."
+        ),
     )
     parser.add_argument(
         "--csv-file",
@@ -224,6 +247,10 @@ def parse_arguments() -> argparse.Namespace:
     )
     args = parser.parse_args()
 
+    try:
+        args.sensor = normalize_sensor_names(args.sensor)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.interval_ms < 0:
         parser.error("--interval-ms cannot be negative.")
     if args.count < 0:
@@ -305,6 +332,10 @@ def transform_temperature(
         # selected vaccine profile without allowing a source excursion to
         # create an incident in the normal test scenario.
         return safe_baseline_temperature(source_temperature_c, profile)
+    if scenario == "warning":
+        # Stay inside the documented range while the sensor's ±0.5°C
+        # uncertainty interval crosses the warm boundary.
+        return profile.max_c - 0.25
     if scenario == "outlier":
         # Every event is intentionally outside the safe range. Alternating the
         # direction gives the analysis report both cold and warm examples.
@@ -451,7 +482,17 @@ def main() -> int:
             min_temp=args.min_temp,
             max_temp=args.max_temp,
         )
-        sensor_name, readings = load_temperature_data(Path(args.csv_file), args.sensor)
+        rng = random.Random(args.seed)
+        sensor_runs = []
+        for requested_sensor in args.sensor:
+            sensor_name, readings = load_temperature_data(
+                Path(args.csv_file), requested_sensor
+            )
+            sensor_runs.append({
+                "sensor_name": sensor_name,
+                "readings": readings,
+                "index": rng.randrange(len(readings)) if args.seed is not None else 0,
+            })
         client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.loop_start()
@@ -460,11 +501,14 @@ def main() -> int:
         print("Make sure Mosquitto is running on localhost:1883.", file=sys.stderr)
         return 1
 
-    rng = random.Random(args.seed)
-    start_index = rng.randrange(len(readings)) if args.seed is not None else 0
     if args.output_mode == "verbose":
-        print(format_service_message("GENERATOR", f"sensor={sensor_name}; vaccine={profile.name}; scenario={args.scenario}"), flush=True)
-        print(format_service_message("GENERATOR", f"temperature_range={profile.min_c}°C to {profile.max_c}°C; usable_readings={len(readings)}"), flush=True)
+        sensor_list = ", ".join(run["sensor_name"] for run in sensor_runs)
+        readings_list = ", ".join(
+            f'{run["sensor_name"]}:{len(run["readings"])}'
+            for run in sensor_runs
+        )
+        print(format_service_message("GENERATOR", f"sensors={sensor_list}; vaccine={profile.name}; scenario={args.scenario}"), flush=True)
+        print(format_service_message("GENERATOR", f"temperature_range={profile.min_c}°C to {profile.max_c}°C; usable_readings={readings_list}"), flush=True)
         print(format_service_message("GENERATOR", f"publishing_to={MQTT_TOPIC}; seed={args.seed}; interval_ms={args.interval_ms}; occupancy={args.occupancy_state}"), flush=True)
         print(format_service_message("GENERATOR", "Press Control-C to stop."), flush=True)
 
@@ -478,8 +522,15 @@ def main() -> int:
     first_event_time = None
     last_event_time = None
     started = time.perf_counter()
-    index = start_index
-    batch_id = args.batch_id or (f"{sensor_name}-DEMO-BATCH" if args.occupancy_state == "loaded" else None)
+    batch_ids = {
+        run["sensor_name"]: args.batch_id or (
+            f'{run["sensor_name"]}-DEMO-BATCH'
+            if args.occupancy_state == "loaded" else None
+        )
+        for run in sensor_runs
+    }
+    per_sensor_published = Counter()
+    per_sensor_failed = Counter()
     direct_persist = None
     if args.write_db:
         try:
@@ -489,55 +540,61 @@ def main() -> int:
             from temperature_subscriber import persist_event
     try:
         while args.count == 0 or count < args.count:
-            # Choose the next CSV row and turn it into one MQTT event.
-            event = make_event(
-                sensor_name,
-                readings.iloc[index],
-                profile,
-                args.scenario,
-                event_number=count + 1,
-                total_events=args.count,
-                event_id=str(UUID(int=rng.getrandbits(128))) if args.seed is not None else None,
-                occupancy_state=args.occupancy_state,
-                batch_id=batch_id,
-                cooling_enabled=args.cooling_enabled,
-            )
-            # Keep the requested scenario separate from the optional phase.
-            # This prevents a mixed run from being reported as if its phases
-            # were three different top-level scenarios.
-            scenario_counts[event["scenario"]] += 1
-            phase_counts[event.get("scenario_phase", event["scenario"])] += 1
-            event_time = parse_timestamp(event["event_time"], "event_time", assume_utc=False)
-            first_event_time = first_event_time or event_time
-            last_event_time = event_time
-            # Publish without waiting for a reply from the subscriber.
-            result = client.publish(MQTT_TOPIC, json.dumps(event), qos=0)
-            result.wait_for_publish()
+            # Each loop is one round: publish one event for every selected Pod
+            # before waiting for the requested interval.
+            for run in sensor_runs:
+                sensor_name = run["sensor_name"]
+                event = make_event(
+                    sensor_name,
+                    run["readings"].iloc[run["index"]],
+                    profile,
+                    args.scenario,
+                    event_number=count + 1,
+                    total_events=args.count,
+                    event_id=str(UUID(int=rng.getrandbits(128))) if args.seed is not None else None,
+                    occupancy_state=args.occupancy_state,
+                    batch_id=batch_ids[sensor_name],
+                    cooling_enabled=args.cooling_enabled,
+                )
+                # Keep the requested scenario separate from the optional phase.
+                # This prevents a mixed run from being reported as if its phases
+                # were three different top-level scenarios.
+                scenario_counts[event["scenario"]] += 1
+                phase_counts[event.get("scenario_phase", event["scenario"])] += 1
+                event_time = parse_timestamp(event["event_time"], "event_time", assume_utc=False)
+                first_event_time = first_event_time or event_time
+                last_event_time = event_time
+                # Publish without waiting for a reply from the subscriber.
+                result = client.publish(MQTT_TOPIC, json.dumps(event), qos=0)
+                result.wait_for_publish()
 
-            if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                published += 1
-                write_result = None
-                if direct_persist is not None:
-                    write_result = direct_persist(event, topic=MQTT_TOPIC)
-                if args.output_mode == "verbose":
-                    outcome = "PUBLISHED"
-                    if write_result is not None:
-                        outcome += " + DUPLICATE" if write_result.duplicate else " + DB STORED"
-                    print(format_event_block(
-                        event,
-                        component="GENERATOR",
-                        outcome=outcome,
-                        sequence=count + 1,
-                        topic=MQTT_TOPIC,
-                        stored_at=write_result.stored_at if write_result is not None else None,
-                    ), flush=True)
-            else:
-                failed += 1
-                if args.output_mode != "none":
-                    print(format_service_message("GENERATOR", f"PUBLISH FAILED #{count + 1:04d}; mqtt_code={result.rc}"), file=sys.stderr, flush=True)
+                if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                    published += 1
+                    per_sensor_published[sensor_name] += 1
+                    write_result = None
+                    if direct_persist is not None:
+                        write_result = direct_persist(event, topic=MQTT_TOPIC)
+                    if args.output_mode == "verbose":
+                        outcome = "PUBLISHED"
+                        if write_result is not None:
+                            outcome += " + DUPLICATE" if write_result.duplicate else " + DB STORED"
+                        print(format_event_block(
+                            event,
+                            component="GENERATOR",
+                            outcome=outcome,
+                            sequence=count + 1,
+                            topic=MQTT_TOPIC,
+                            stored_at=write_result.stored_at if write_result is not None else None,
+                        ), flush=True)
+                else:
+                    failed += 1
+                    per_sensor_failed[sensor_name] += 1
+                    if args.output_mode != "none":
+                        print(format_service_message("GENERATOR", f"PUBLISH FAILED {sensor_name} round #{count + 1:04d}; mqtt_code={result.rc}"), file=sys.stderr, flush=True)
+
+                run["index"] = (run["index"] + 1) % len(run["readings"])
 
             count += 1
-            index = (index + 1) % len(readings)
             if args.count == 0 or count < args.count:
                 time.sleep(args.interval_ms / 1000.0)
     except KeyboardInterrupt:
@@ -549,10 +606,20 @@ def main() -> int:
     elapsed = max(time.perf_counter() - started, 1e-9)
     if args.output_mode == "summary":
         print(json.dumps({
+            "pods": [run["sensor_name"] for run in sensor_runs],
             "requested": args.count if args.count else "unlimited",
-            "generated": count,
+            "requested_per_pod": args.count if args.count else "unlimited",
+            "rounds": count,
+            "generated": count * len(sensor_runs),
             "published": published,
             "failed": failed,
+            "per_pod": {
+                sensor_name: {
+                    "published": per_sensor_published[sensor_name],
+                    "failed": per_sensor_failed[sensor_name],
+                }
+                for sensor_name in (run["sensor_name"] for run in sensor_runs)
+            },
             "per_scenario": dict(sorted(scenario_counts.items())),
             "per_phase": dict(sorted(phase_counts.items())),
             "first_event_time": format_timestamp(first_event_time) if first_event_time else None,
