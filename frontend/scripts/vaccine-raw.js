@@ -12,10 +12,12 @@
   let renderQueued = false;
   let queuedFollow = false;
 
-  const formatTime = (value) => {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? String(value || '—') : date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  };
+  const formatTime = (value) => data.formatLocalDateTime(value, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: undefined,
+  });
   const formatTemperature = (value) => Number.isFinite(Number(value)) ? Number(value).toFixed(1) + '°C' : '—';
   const statusClass = (status) => String(status || 'UNKNOWN').toLowerCase().replace('_', '-');
 

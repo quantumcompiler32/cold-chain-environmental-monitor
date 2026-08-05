@@ -15,6 +15,7 @@
     lowerLimitC: -80,
     upperLimitC: -60,
   });
+  const LOCAL_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
 
   const SENSOR_TOLERANCE_C = 0.5;
   const POD_TREND_WINDOW_MINUTES = 15;
@@ -248,7 +249,7 @@
     return `${converted.toFixed(1).replace('-', '−')}°${normalizedUnit}`;
   }
 
-  function formatAxisTimestamp(value, options = {}) {
+  function formatLocalDateTime(value, options = {}) {
     const parsed = new Date(String(value || ''));
     if (!Number.isFinite(parsed.getTime())) return '—';
     return new Intl.DateTimeFormat(options.locale || undefined, {
@@ -256,9 +257,15 @@
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
-      timeZone: options.timeZone || undefined,
+      second: '2-digit',
       timeZoneName: 'short',
+      ...options,
+      timeZone: options.timeZone || LOCAL_TIME_ZONE,
     }).format(parsed);
+  }
+
+  function formatAxisTimestamp(value, options = {}) {
+    return formatLocalDateTime(value, { ...options, second: undefined });
   }
 
   function movingAverage(values, windowSize = 3) {
@@ -310,7 +317,7 @@
       labels,
       series,
       definition: interval.milliseconds
-        ? `${interval.label} buckets; each value is the arithmetic mean of readings in that UTC ${intervalKey === 'daily' ? 'day' : intervalKey === 'hourly' ? 'hour' : '15-minute interval'}.`
+        ? `${interval.label} buckets; each value is the arithmetic mean of readings in each ${intervalKey === 'daily' ? 'day' : intervalKey === 'hourly' ? 'hour' : '15-minute interval'}; times display in local time.`
         : 'Raw readings; no aggregation is applied.',
       movingAverageDefinition: `Trailing ${movingAverageWindow}-point moving average of aggregated interval means; the current point and up to ${movingAverageWindow - 1} prior points are averaged.`,
     };
@@ -643,6 +650,7 @@
 
   return {
     PROFILE,
+    LOCAL_TIME_ZONE,
     SENSOR_TOLERANCE_C,
     PROFILE_DEFINITIONS,
     AGGREGATION_INTERVALS,
@@ -651,6 +659,7 @@
     getDateRange,
     convertTemperature,
     formatTemperature,
+    formatLocalDateTime,
     formatAxisTimestamp,
     movingAverage,
     aggregateTemperatureSeries,

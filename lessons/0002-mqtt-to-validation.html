@@ -1,0 +1,18 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Lesson 2 · MQTT to validation</title><link rel="stylesheet" href="../assets/lesson.css"></head><body>
+<p class="kicker">Cold-chain event pipeline · Lesson 2</p>
+<h1>From MQTT message to trusted event</h1>
+<p><strong>Win for this lesson:</strong> you can trace what the subscriber does before any database write occurs.</p>
+<h2>What MQTT delivers</h2>
+<p>Mosquitto routes the published bytes to clients subscribed to <code>devices/temperature</code>. The subscriber’s <code>on_message</code> callback receives the topic and payload. At this point, the payload is only text/bytes—not yet a trusted Python event.</p>
+<div class="flow">MQTT bytes → decode UTF-8 → parse JSON → validate and normalize → derive state → persist</div>
+<h2>The subscriber’s trust gate</h2>
+<p><code>process_message()</code> first records <code>received_at</code>, meaning when this consumer got the message. It decodes the payload and parses JSON. Then <code>validate_event()</code> checks the contract.</p>
+<ul><li>Required fields exist: identity, device, vaccine, temperature, limits, uncertainty, and status.</li><li>Types are safe: numbers become floats, timestamps become UTC-aware datetimes, and booleans must really be booleans.</li><li><code>event_id</code> must be a UUID, so it can safely identify a database row.</li><li>The uncertainty fields must agree with the temperature and storage range.</li><li>Operational state is derived from the normalized event; the subscriber does not blindly trust a sender’s derived status.</li></ul>
+<h2>Why validate here?</h2>
+<p>MQTT transports messages; it does not guarantee that the application payload is complete or semantically correct. The subscriber is the boundary that turns “a message arrived” into “this event is acceptable for persistence.” If validation fails, the event is rejected and the database is not written.</p>
+<h2>Two clocks, so far</h2>
+<p><code>event_time</code> answers “when was this simulated reading created?” <code>received_at</code> answers “when did this subscriber receive it?” Their difference is transport/processing delay. Later, PostgreSQL adds <code>stored_at</code>.</p>
+<div class="check"><strong>Trace exercise</strong><p>Suppose the payload is valid JSON but is missing <code>measurement_confidence</code>. Does it reach PostgreSQL? Which function rejects it, and why is that better than letting the database discover the problem?</p><p>Then explain the difference between <code>event_time</code> and <code>received_at</code> in one sentence.</p></div>
+<p>Ask follow-up questions freely. Next we’ll inspect the atomic dual write and see why one event appears in two tables.</p>
+<p class="source">Repository references: <a href="../backend/temperature_subscriber.py">subscriber</a> · <a href="../docs/architecture-and-pipeline.md">pipeline map</a>.</p>
+</body></html>

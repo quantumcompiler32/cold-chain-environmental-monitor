@@ -12,6 +12,7 @@ const {
   buildChartSeries,
   getDateRange,
   formatTemperature,
+  formatLocalDateTime,
   formatAxisTimestamp,
   aggregateTemperatureSeries,
   movingAverage,
@@ -177,6 +178,13 @@ test('formats temperature in the selected unit and labels the chart timezone', (
   }), 'Aug 4, 12:30 PM PDT');
 });
 
+test('formats persisted timestamps in the selected local display timezone', () => {
+  assert.equal(formatLocalDateTime('2026-07-15T16:00:00Z', {
+    timeZone: 'America/Los_Angeles',
+    locale: 'en-US',
+  }), 'Jul 15, 9:00:00 AM PDT');
+});
+
 test('aggregates explicit hourly intervals and computes a three-point trailing average', () => {
   const events = [
     podEvent(1, '2026-08-04T00:05:00Z', -78),
@@ -193,7 +201,7 @@ test('aggregates explicit hourly intervals and computes a three-point trailing a
   ]);
   assert.deepEqual(series.series[0].values, [-77.5, -76, -75]);
   assert.deepEqual(series.series[0].movingAverage, [-77.5, -76.75, -76.16666666666667]);
-  assert.equal(series.definition, 'Hourly buckets; each value is the arithmetic mean of readings in that UTC hour.');
+  assert.equal(series.definition, 'Hourly buckets; each value is the arithmetic mean of readings in each hour; times display in local time.');
   assert.equal(series.movingAverageDefinition, 'Trailing 3-point moving average of aggregated interval means; the current point and up to 2 prior points are averaged.');
   assert.deepEqual(movingAverage([1, 2, 3, 4], 3), [1, 1.5, 2, 3]);
 });

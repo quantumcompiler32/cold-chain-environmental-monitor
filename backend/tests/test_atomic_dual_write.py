@@ -4,7 +4,7 @@ import json
 import unittest
 from datetime import datetime, timezone
 
-from backend.temperature_subscriber import persist_event, process_message
+from backend.temperature_subscriber import persist_event, process_message, resolve_ingestion_timestamps
 
 
 EVENT = {
@@ -98,6 +98,34 @@ class AtomicDualWriteTests(unittest.TestCase):
         generic_params = cursor.statements[0][1]
         self.assertEqual(generic_params[-2].microsecond, 111000)
         self.assertEqual(generic_params[-1].microsecond, 222000)
+
+    def test_replay_clock_backdates_received_and_stored_at(self):
+        cursor = FakeCursor()
+        connection = FakeConnection(cursor)
+        event = {**EVENT, "_simulated_at": "2026-07-15T16:00:00.000Z"}
+
+        process_message(
+            json.dumps(event, default=str),
+            connection_factory=lambda: connection,
+        )
+
+        generic_params = cursor.statements[0][1]
+        vaccine_params = cursor.statements[1][1]
+        expected = datetime(2026, 7, 15, 16, 0, 0, tzinfo=timezone.utc)
+        self.assertEqual(generic_params[-2], expected)
+        self.assertEqual(generic_params[-1], expected)
+        self.assertEqual(vaccine_params[-2], expected)
+        self.assertEqual(vaccine_params[-1], expected)
+        self.assertNotIn("_simulated_at", generic_params[5])
+
+    def test_listener_ingestion_clock_uses_replay_timestamp(self):
+        event = {**EVENT, "_simulated_at": "2026-07-15T16:00:00.000Z"}
+
+        clock, received_at = resolve_ingestion_timestamps(event)
+
+        expected = datetime(2026, 7, 15, 16, 0, 0, tzinfo=timezone.utc)
+        self.assertEqual(received_at, expected)
+        self.assertEqual(clock(), expected)
 
     def test_success_writes_generic_and_vaccine_rows_in_one_transaction(self):
         cursor = FakeCursor()

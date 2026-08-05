@@ -42,6 +42,7 @@ class EventContractTests(unittest.TestCase):
             "sensor_name": "Pod1",
             "vaccine_type": "pfizer_ultralow",
             "scenario": "normal",
+            "batch_id": "Pod1-DEMO-BATCH",
             "temperature_c": -78.5,
             "status": "STABLE",
             "sensor_tolerance_c": 0.5,
@@ -59,6 +60,34 @@ class EventContractTests(unittest.TestCase):
         self.assertEqual(normalized["event_time"], datetime(2026, 7, 29, 12, 0, 0, 123000, tzinfo=timezone.utc))
         self.assertNotIn("source_time", normalized)
         self.assertNotIn("source_timestamp", normalized)
+
+    def test_listener_removes_internal_replay_clock_from_persisted_event(self):
+        event = {
+            "event_id": "2f6f7c3d-5bd5-4f8c-9b8b-5bdb81f8d0c1",
+            "device_id": "vaccine_temperature_simulator",
+            "event_time": "2026-07-15T16:00:00.000Z",
+            "_simulated_at": "2026-07-15T16:00:00.000Z",
+            "sensor_name": "Pod1",
+            "vaccine_type": "pfizer_ultralow",
+            "scenario": "normal",
+            "batch_id": "Pod1-DEMO-BATCH",
+            "temperature_c": -78.5,
+            "status": "STABLE",
+            "sensor_tolerance_c": 0.5,
+            "temperature_min_possible_c": -79.0,
+            "temperature_max_possible_c": -78.0,
+            "storage_min_c": -80.0,
+            "storage_max_c": -60.0,
+            "uncertainty_status": "WITHIN_RANGE",
+            "boundary_crossing": False,
+            "measurement_confidence": "Approximately +/-0.5 C Type-T thermocouple accuracy",
+        }
+
+        normalized = validate_event(event)
+
+        self.assertNotIn("_simulated_at", normalized)
+        self.assertEqual(normalized["operational_status"], "NORMAL")
+        self.assertEqual(normalized["severity"], "info")
 
 
 if __name__ == "__main__":

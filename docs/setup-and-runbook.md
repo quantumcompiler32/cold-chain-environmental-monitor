@@ -58,6 +58,14 @@ make verify
 curl http://127.0.0.1:8787/api/verification/latest-events
 ```
 
+For a reproducible local replay with July timestamps, add an explicit start
+time to the generator command. Every event timestamp, receipt timestamp, and
+storage timestamp will use that simulated clock:
+
+```bash
+make run-scenario SENSORS=Pod1 SCENARIO=mixed COUNT=9 INTERVAL_MS=100 SEED=104 START_TIME=2026-07-15T09:00:00-07:00
+```
+
 The bridge must report those same event IDs at
 `http://127.0.0.1:8766/pages/domain-vaccine-raw.html`.
 

@@ -149,11 +149,26 @@ Open `http://127.0.0.1:8766/` or
 ## Generate events
 
 The generator reads the reproducible source-variation CSV in
-`ai_worker/data/`, creates current UTC event timestamps, and publishes MQTT
-messages. It does not import a historical CSV timestamp.
+`ai_worker/data/`, creates current UTC event timestamps by default, and
+publishes MQTT messages. It does not import a historical CSV timestamp.
+
+For a local replay, pass an ISO-8601 `START_TIME`. The timezone offset is
+optional; when omitted, the timestamp uses the computer's local timezone. Each
+round advances by `INTERVAL_MS`; the event, receipt, and storage timestamps are
+all derived from that simulated clock, so the dashboard can show a July run
+while you execute it today. This is intended for local demos and tests:
+
+```bash
+make run-scenario SENSORS=Pod1 SCENARIO=mixed COUNT=9 INTERVAL_MS=100 SEED=104 START_TIME=2026-07-15T09:00:00
+```
+
+For exact cross-timezone reproduction, include an offset such as
+`START_TIME=2026-07-15T09:00:00-07:00`; otherwise each machine interprets the
+same clock text in its own local timezone.
 
 ```bash
 make run-scenario SENSORS=Pod1 SCENARIO=normal COUNT=30 INTERVAL_MS=100 SEED=42
+make run-scenario SENSORS=ALL SCENARIO=normal COUNT=30 INTERVAL_MS=100 SEED=42
 make run-scenario SENSORS=Pod1 SCENARIO=warning COUNT=30 INTERVAL_MS=100 SEED=42
 make run-scenario SENSORS=Pod1 SCENARIO=outlier COUNT=30 INTERVAL_MS=100
 make run-scenario SENSORS=Pod1 SCENARIO=recovery COUNT=30 INTERVAL_MS=100
@@ -238,6 +253,4 @@ dashboard use.
 - [`docs/architecture-and-pipeline.md`](docs/architecture-and-pipeline.md) — component responsibilities and data flow.
 - [`docs/database-access.md`](docs/database-access.md) — database read/write ownership and SQL boundaries.
 - [`docs/terminal-runbook.md`](docs/terminal-runbook.md) — copy-paste process commands.
-- [`docs/demo-script.md`](docs/demo-script.md) — demonstration sequence.
-- [`docs/final-verification-report.md`](docs/final-verification-report.md) — acceptance evidence and risks.
 - [`edge/README.md`](edge/README.md) — hardware and sensor notes.

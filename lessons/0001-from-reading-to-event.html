@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Lesson 1 · From reading to event</title><link rel="stylesheet" href="../assets/lesson.css"></head><body>
+<p class="kicker">Cold-chain event pipeline · Lesson 1</p>
+<h1>From a source reading to a publishable event</h1>
+<p><strong>Win for this lesson:</strong> you can explain what the generator does, what it does not do, and why <code>event_id</code>, <code>event_time</code>, and <code>run_id</code> exist.</p>
+<h2>The first boundary</h2>
+<p>This demo uses a CSV as a reproducible stand-in for a sensor. The generator reads a temperature value, converts Fahrenheit to Celsius when needed, applies a named scenario such as <code>normal</code> or <code>warning</code>, classifies it against the vaccine’s storage range, and packages the result as JSON.</p>
+<div class="flow">CSV guidance → generator transforms one reading → JSON event → MQTT topic <code>devices/temperature</code></div>
+<p>The CSV is <em>guidance</em>, not the authoritative live clock. At generation time, the program creates <code>event_time</code>. That distinction matters: an old source measurement can still produce a new simulated event.</p>
+<h2>Three identities to keep separate</h2>
+<ul><li><code>event_id</code>: identity of one reading/event. It is a UUID and later makes duplicate delivery safe.</li><li><code>run_id</code>: identity of one generator invocation. Many events can share it, which helps diagnostics.</li><li><code>event_time</code>: when the event was created. Later stages add <code>received_at</code> and <code>stored_at</code>.</li></ul>
+<h2>What the generator guarantees</h2>
+<p>It produces a contract-shaped message with device, vaccine, scenario, measurement, uncertainty, and status fields. It then publishes the JSON to MQTT. It does <strong>not</strong> write the dashboard, validate database consistency, or decide whether stock is released or quarantined.</p>
+<div class="check"><strong>Recall — answer from memory before checking the code</strong><ol><li>Why is the CSV timestamp not the live event timestamp?</li><li>What is the difference between <code>event_id</code> and <code>run_id</code>?</li><li>After the generator publishes, which component is responsible for receiving the message?</li></ol><p>Send me your answers in your own words. I’ll correct misconceptions, then we’ll continue to MQTT and the subscriber.</p></div>
+<p class="source">Primary reading: <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html">MQTT 3.1.1 specification</a>. Repository references: <a href="../docs/architecture-and-pipeline.md">pipeline map</a> · <a href="../backend/temperature_event_generator.py">generator</a>.</p>
+</body></html>

@@ -27,7 +27,7 @@
   let aggregationInterval = 'hourly';
   let movingAverageWindow = 3;
   let connectionState = 'loading';
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const timeZone = data.LOCAL_TIME_ZONE || 'local time';
 
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
@@ -166,16 +166,14 @@
   function formatDateTime(value) {
     if (!value) return '—';
     const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? String(value) : new Intl.DateTimeFormat([], {
+    return Number.isNaN(parsed.getTime()) ? String(value) : data.formatLocalDateTime(value, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
-      second: '2-digit',
       timeZoneName: 'short',
-      timeZone,
-    }).format(parsed);
+    });
   }
 
   function openPodDetails(sensorName) {
@@ -587,7 +585,7 @@
   function aggregationDefinitionText() {
     return aggregationInterval === 'raw'
       ? 'Raw readings'
-      : `${aggregationIntervalLabel()} buckets are arithmetic means of readings in each UTC interval`;
+      : `${aggregationIntervalLabel()} buckets are arithmetic means of readings; times display in local time`;
   }
 
   function queueRender() {

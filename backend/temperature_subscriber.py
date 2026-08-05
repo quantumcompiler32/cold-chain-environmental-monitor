@@ -98,18 +98,39 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def simulated_timestamp(event: dict[str, Any]) -> datetime | None:
+    """Read the internal local-replay clock, if a publisher supplied one."""
+    value = event.get("_simulated_at")
+    if value is None:
+        return None
+    return parse_timestamp(value, "_simulated_at", assume_utc=False)
+
+
+def resolve_ingestion_timestamps(
+    event: dict[str, Any],
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> tuple[Callable[[], datetime] | None, datetime]:
+    """Resolve receipt time and persistence clock for realtime or replay input."""
+    replay_time = simulated_timestamp(event)
+    replay_clock = clock or (lambda: replay_time) if replay_time is not None else clock
+    return replay_clock, now_utc(replay_clock)
+
+
 def validate_event(data: dict[str, Any]) -> dict[str, Any]:
     """Validate and normalize the shared event contract."""
     if not isinstance(data, dict):
         raise ValueError("The JSON payload must be an object.")
 
     normalized = dict(data)
+    replay_time = simulated_timestamp(normalized)
     if "event_time" not in normalized and "timestamp" in normalized:
         normalized["event_time"] = normalized["timestamp"]
     # Historical CSV timestamps are not part of the live event contract.
     # Ignore legacy aliases so old publishers cannot overwrite event timing.
     normalized.pop("source_time", None)
     normalized.pop("source_timestamp", None)
+    normalized.pop("_simulated_at", None)
     missing = sorted(REQUIRED_FIELDS - normalized.keys())
     if missing:
         raise ValueError("Missing required field(s): " + ", ".join(missing))
@@ -159,7 +180,7 @@ def validate_event(data: dict[str, Any]) -> dict[str, Any]:
         if normalized[field] != expected[field]:
             raise ValueError(f"{field} does not match temperature_c and uncertainty.")
 
-    normalized.update(derive_operational_state(normalized))
+    normalized.update(derive_operational_state(normalized, now=replay_time))
 
     normalized["timestamp"] = normalized["event_time"]
     return normalized
@@ -182,9 +203,11 @@ def persist_event(
     topic: str = MQTT_TOPIC,
 ) -> PersistenceResult:
     """Write both intentional projections in one transaction using event_id."""
+    replay_time = simulated_timestamp(event)
+    replay_clock = clock or (lambda: replay_time) if replay_time is not None else clock
     normalized = validate_event(event)
-    received = received_at or now_utc(clock)
-    stored = now_utc(clock)
+    received = received_at or now_utc(replay_clock)
+    stored = now_utc(replay_clock)
     generic_sql = """
         INSERT INTO telemetry_logs
             (event_id, run_id, device_id, topic, event_time, payload, temperature, status, received_at, stored_at)
@@ -280,13 +303,13 @@ def process_message(
     topic: str = MQTT_TOPIC,
 ) -> PersistenceResult:
     """Decode, validate, timestamp ingestion, and persist one MQTT message."""
-    received_at = now_utc(clock)
     data = json.loads(payload.decode("utf-8") if isinstance(payload, bytes) else payload)
+    replay_clock, received_at = resolve_ingestion_timestamps(data, clock=clock)
     return persist_event(
         data,
         connection_factory=connection_factory,
         received_at=received_at,
-        clock=clock,
+        clock=replay_clock,
         topic=topic,
     )
 
@@ -334,12 +357,19 @@ def main() -> int:
         message_count += 1
         event = None
         try:
-            # Capture listener receipt before validation or database work. The
-            # value is passed through so it cannot be confused with stored_at.
-            received_at = now_utc()
-            event = validate_event(json.loads(message.payload.decode("utf-8")))
+            # Capture listener receipt before validation or database work. In
+            # local replay mode this uses the event's simulated clock instead
+            # of the wall clock, and the same clock is passed to stored_at.
+            raw_event = json.loads(message.payload.decode("utf-8"))
+            replay_clock, received_at = resolve_ingestion_timestamps(raw_event)
+            event = validate_event(raw_event)
             if args.write_db:
-                result = persist_event(event, received_at=received_at, topic=message.topic)
+                result = persist_event(
+                    event,
+                    received_at=received_at,
+                    clock=replay_clock,
+                    topic=message.topic,
+                )
                 if args.output_mode == "verbose":
                     print(format_event_block(
                         event,

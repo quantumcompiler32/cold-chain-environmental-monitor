@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from backend.temperature_event_generator import (
+    expand_sensor_names,
     load_temperature_data,
     make_event,
     parse_arguments,
@@ -106,6 +107,60 @@ class GeneratorScenarioTests(unittest.TestCase):
             args = parse_arguments()
 
         self.assertEqual(args.sensor, ["Pod1", "Pod2", "Pod3"])
+
+    def test_cli_accepts_all_sensor_selector(self):
+        with patch.object(sys, "argv", ["generator", "--sensor", "ALL", "--count", "1"]):
+            args = parse_arguments()
+
+        self.assertEqual(args.sensor, ["ALL"])
+
+    def test_all_sensor_selector_discovers_numeric_pod_columns(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            csv_path = Path(temporary_directory) / "temperatures.csv"
+            csv_path.write_text("Pod10,Ambient,Pod2,Pod1\n32,40,33,34\n", encoding="utf-8")
+
+            sensors = expand_sensor_names(["ALL"], csv_path)
+
+        self.assertEqual(sensors, ["Pod1", "Pod2", "Pod10"])
+
+    def test_cli_accepts_reproducible_backdated_start_time(self):
+        with patch.object(
+            sys,
+            "argv",
+            ["generator", "--start-time", "2026-07-15T09:00:00-07:00", "--count", "2"],
+        ):
+            args = parse_arguments()
+
+        self.assertEqual(
+            args.start_time,
+            datetime(2026, 7, 15, 16, 0, 0, tzinfo=timezone.utc),
+        )
+
+    def test_cli_accepts_local_start_time_without_timezone_offset(self):
+        local_value = datetime(2026, 7, 21, 10, 40).astimezone().astimezone(timezone.utc)
+        with patch.object(
+            sys,
+            "argv",
+            ["generator", "--start-time", "2026-07-21T10:40:00", "--count", "2"],
+        ):
+            args = parse_arguments()
+
+        self.assertEqual(args.start_time, local_value)
+
+    def test_backdated_run_marks_ingestion_clock_without_changing_event_shape(self):
+        event = make_event(
+            "Pod1",
+            self.row,
+            self.profile,
+            "normal",
+            event_number=1,
+            total_events=1,
+            event_time=self.event_time,
+            backdate_ingestion=True,
+        )
+
+        self.assertEqual(event["_simulated_at"], event["event_time"])
+        self.assertEqual(event["timestamp"], event["event_time"])
 
     def test_main_publishes_each_round_to_every_selected_pod(self):
         class PublishResult:

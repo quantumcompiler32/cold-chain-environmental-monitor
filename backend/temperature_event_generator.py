@@ -26,7 +26,7 @@ from collections import Counter
 from uuid import uuid4
 from uuid import UUID
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -156,6 +156,58 @@ def normalize_sensor_names(sensor_values: list[str]) -> list[str]:
     return names
 
 
+def discover_sensor_names(csv_path: Path) -> list[str]:
+    """Return bundled Pod columns in deterministic numeric order."""
+    if not csv_path.exists():
+        raise FileNotFoundError(
+            f"CSV file not found: {csv_path.resolve()}\n"
+            "Place ai_worker/data/Test1_TempCO2O2.csv in the repository AI-worker directory."
+        )
+    frame = pd.read_csv(csv_path, low_memory=False, nrows=0)
+    names = [
+        str(column) for column in frame.columns
+        if str(column).casefold().startswith("pod")
+        and str(column)[3:].isdigit()
+    ]
+    names.sort(key=lambda name: int(name[3:]))
+    if not names:
+        raise ValueError(f"No Pod sensor columns were found in {csv_path}.")
+    return names
+
+
+def parse_start_time(value: str) -> datetime:
+    """Parse a replay start time, assuming the machine's local timezone if omitted."""
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError("--start-time must be an ISO-8601 date/time") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        parsed = parsed.astimezone()
+    return parse_timestamp(parsed, "--start-time", assume_utc=False)
+
+
+def expand_sensor_names(sensor_values: list[str], csv_path: Path) -> list[str]:
+    """Resolve the ALL selector against every Pod column in the source CSV."""
+    requested = normalize_sensor_names(sensor_values)
+    available = None
+    expanded: list[str] = []
+    seen: set[str] = set()
+    for name in requested:
+        candidates = available if name.casefold() == "all" else [name]
+        if candidates is None:
+            available = discover_sensor_names(csv_path)
+            candidates = available
+        for candidate in candidates:
+            key = candidate.casefold()
+            if key not in seen:
+                expanded.append(candidate)
+                seen.add(key)
+    return expanded
+
+
 def parse_arguments() -> argparse.Namespace:
     """Read the command-line controls used to build the simulation."""
     # argparse converts Terminal text such as --max-events 20 into Python
@@ -170,7 +222,8 @@ def parse_arguments() -> argparse.Namespace:
         metavar="POD",
         help=(
             "Pod temperature columns, for example Pod1 Pod2 Pod3; "
-            f"comma-separated values also work (default: {DEFAULT_SENSOR})."
+            f"comma-separated values also work; use ALL for every Pod "
+            f"(default: {DEFAULT_SENSOR})."
         ),
     )
     parser.add_argument(
@@ -230,6 +283,14 @@ def parse_arguments() -> argparse.Namespace:
         help="Correlation ID shared by every event in this generator run; defaults to a new UUID.",
     )
     parser.add_argument(
+        "--start-time", "--event-start-time",
+        dest="start_time",
+        help=(
+            "Optional ISO-8601 timestamp for a reproducible local replay; "
+            "each round advances by --interval-ms."
+        ),
+    )
+    parser.add_argument(
         "--output-mode",
         choices=("none", "summary", "verbose"),
         default="summary",
@@ -260,6 +321,11 @@ def parse_arguments() -> argparse.Namespace:
         parser.error("--interval-ms cannot be negative.")
     if args.count < 0:
         parser.error("--count cannot be negative.")
+    if args.start_time:
+        try:
+            args.start_time = parse_start_time(args.start_time)
+        except ValueError as exc:
+            parser.error(str(exc))
     if args.scenario in {"recovery", "mixed"} and args.count == 0:
         parser.error(f"--scenario {args.scenario} requires --count.")
     try:
@@ -426,12 +492,14 @@ def make_event(
     event_id: str | None = None,
     run_id: str | None = None,
     event_time: datetime | None = None,
+    backdate_ingestion: bool = False,
     occupancy_state: str = "loaded",
     batch_id: str | None = None,
     cooling_enabled: bool = True,
 ) -> dict[str, Any]:
     """Build one portable JSON event representing a newly generated reading."""
-    # The CSV supplies temperature shape only; this event is created now.
+    # The CSV supplies temperature shape only; this event is created now unless
+    # the caller explicitly enables reproducible local replay mode.
     source_temperature_c = float(row["temperature_c"])
     temperature_c = transform_temperature(
         source_temperature_c,
@@ -458,6 +526,10 @@ def make_event(
         "temperature_c": round(temperature_c, 2),
         "status": classify_temperature(temperature_c, profile),
     }
+    if backdate_ingestion:
+        # The subscriber consumes this internal clock hint, uses it for all
+        # persisted timestamps, and removes it before storing the JSON payload.
+        event["_simulated_at"] = format_timestamp(generated_event_time)
     if scenario == "mixed":
         normal_end = max(1, total_events // 3)
         failure_end = max(normal_end + 1, (total_events * 2) // 3)
@@ -495,7 +567,7 @@ def main() -> int:
         )
         rng = random.Random(args.seed)
         sensor_runs = []
-        for requested_sensor in args.sensor:
+        for requested_sensor in expand_sensor_names(args.sensor, Path(args.csv_file)):
             sensor_name, readings = load_temperature_data(
                 Path(args.csv_file), requested_sensor
             )
@@ -528,7 +600,8 @@ def main() -> int:
         print(format_service_message("GENERATOR", f"sensors={sensor_list}; vaccine={profile.name}; scenario={args.scenario}"), flush=True)
         print(format_service_message("GENERATOR", f"temperature_range={profile.min_c}°C to {profile.max_c}°C; usable_readings={readings_list}"), flush=True)
         destination = "PostgreSQL (direct write)" if args.write_db else f"MQTT {MQTT_TOPIC}"
-        print(format_service_message("GENERATOR", f"destination={destination}; run_id={run_id}; seed={args.seed}; interval_ms={args.interval_ms}; occupancy={args.occupancy_state}"), flush=True)
+        replay_text = format_timestamp(args.start_time) if args.start_time else "realtime"
+        print(format_service_message("GENERATOR", f"destination={destination}; run_id={run_id}; seed={args.seed}; interval_ms={args.interval_ms}; start_time={replay_text}; occupancy={args.occupancy_state}"), flush=True)
         print(format_service_message("GENERATOR", "Press Control-C to stop."), flush=True)
 
     # Reuse source rows cyclically when max-events is larger than the dataset.
@@ -565,6 +638,11 @@ def main() -> int:
                     total_events=args.count,
                     event_id=str(UUID(int=rng.getrandbits(128))) if args.seed is not None else None,
                     run_id=run_id,
+                    event_time=(
+                        args.start_time + timedelta(milliseconds=count * args.interval_ms)
+                        if args.start_time is not None else None
+                    ),
+                    backdate_ingestion=args.start_time is not None,
                     occupancy_state=args.occupancy_state,
                     batch_id=batch_ids[sensor_name],
                     cooling_enabled=args.cooling_enabled,
@@ -644,6 +722,7 @@ def main() -> int:
             "published": published,
             "failed": failed,
             "run_id": run_id,
+            "start_time": format_timestamp(args.start_time) if args.start_time else None,
             "database_write_mode": bool(direct_persist),
             "per_pod": {
                 sensor_name: {

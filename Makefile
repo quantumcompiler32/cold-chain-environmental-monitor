@@ -5,6 +5,7 @@
 PYTHON ?= .venv/bin/python
 APP_ENV ?= development
 LISTENER_OUTPUT_MODE ?= verbose
+START_TIME ?=
 
 .PHONY: test e2e reset-demo reset-dashboard verify verify-fast train-models start-infrastructure start-listener start-ml-service run-scenario demo-all start-dashboard stop-demo
 
@@ -43,7 +44,7 @@ start-listener:
 	$(PYTHON) -m backend.temperature_subscriber --write-db --output-mode $(LISTENER_OUTPUT_MODE)
 
 run-scenario:
-	$(PYTHON) -m backend.temperature_event_generator --sensor $(or $(SENSORS),Pod1) --scenario $(SCENARIO) --count $(or $(COUNT),30) --interval-ms $(or $(INTERVAL_MS),100) --output-mode $(or $(OUTPUT_MODE),summary) --seed $(or $(SEED),42)
+	$(PYTHON) -m backend.temperature_event_generator --sensor $(or $(SENSORS),Pod1) --scenario $(SCENARIO) --count $(or $(COUNT),30) --interval-ms $(or $(INTERVAL_MS),100) --output-mode $(or $(OUTPUT_MODE),summary) --seed $(or $(SEED),42) $(if $(START_TIME),--start-time "$(START_TIME)",)
 
 demo-all:
 	$(PYTHON) -m backend.temperature_event_generator --sensor Pod1 --scenario normal --count $(or $(COUNT),30) --interval-ms $(or $(INTERVAL_MS),200) --output-mode $(or $(OUTPUT_MODE),summary) --seed 42
