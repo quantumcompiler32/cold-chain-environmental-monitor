@@ -16,6 +16,7 @@ const {
   formatAxisTimestamp,
   buildPhaseTrail,
   buildActiveAlerts,
+  selectDetailEvent,
   aggregateTemperatureSeries,
   movingAverage,
 } = require('../scripts/vaccine-data.js');
@@ -213,7 +214,18 @@ test('does not keep a resolved alert active after a newer safe reading', () => {
   assert.deepEqual(buildActiveAlerts([
     podEvent(1, '2026-07-15T10:00:00Z', -55, { status: 'TOO_WARM', severity: 'critical' }),
     podEvent(2, '2026-07-15T10:01:00Z', -78.5, { status: 'STABLE', severity: 'info', rule_alert: '' }),
-  ]), []);
+]), []);
+});
+
+test('starts non-alert pod details at the first event so subsequent readings are available', () => {
+  const history = [
+    podEvent(1, '2026-07-15T10:00:00Z', -78.5),
+    podEvent(2, '2026-07-15T10:01:00Z', -78.4),
+    podEvent(3, '2026-07-15T10:02:00Z', -78.3),
+  ];
+
+  assert.equal(selectDetailEvent(history, null).event_id, '1');
+  assert.equal(selectDetailEvent(history, null, '2').event_id, '2');
 });
 
 test('aggregates explicit hourly intervals and computes a three-point trailing average', () => {

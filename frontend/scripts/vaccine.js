@@ -93,27 +93,31 @@
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
     const values = points.map((event) => displayTemperature(event.temperature_c)).filter(Number.isFinite);
-    const bounds = [displayTemperature(profile.lowerLimitC), displayTemperature(profile.upperLimitC), displayTemperature(profile.targetC), ...values].filter(Number.isFinite);
-    const rawMin = Math.min(...bounds, -80);
-    const rawMax = Math.max(...bounds, -60);
-    const padding = Math.max(1, (rawMax - rawMin) * 0.08);
-    const min = rawMin - padding;
-    const max = rawMax + padding;
+    const observedMin = values.length ? Math.min(...values) : displayTemperature(profile.targetC);
+    const observedMax = values.length ? Math.max(...values) : displayTemperature(profile.targetC);
+    const observedSpan = Math.max(observedMax - observedMin, temperatureUnit === 'F' ? 0.3 : 0.2);
+    const padding = Math.max(temperatureUnit === 'F' ? 0.3 : 0.15, observedSpan * 0.2);
+    const rawMin = observedMin - padding;
+    const rawMax = observedMax + padding;
+    const rawStep = (rawMax - rawMin) / 4;
+    const magnitude = 10 ** Math.floor(Math.log10(Math.max(rawStep, 0.01)));
+    const normalizedStep = rawStep / magnitude;
+    const niceStep = (normalizedStep <= 1 ? 1 : normalizedStep <= 2 ? 2 : normalizedStep <= 5 ? 5 : 10) * magnitude;
+    const min = Math.floor(rawMin / niceStep) * niceStep;
+    const max = Math.ceil(rawMax / niceStep) * niceStep;
     const x = (index) => margin.left + (points.length <= 1 ? plotWidth / 2 : index * plotWidth / (points.length - 1));
     const y = (value) => margin.top + (max - value) * plotHeight / (max - min);
     const path = points.map((event, index) => `${index ? 'L' : 'M'}${x(index).toFixed(1)},${y(displayTemperature(Number(event.temperature_c))).toFixed(1)}`).join(' ');
     const yTicks = [];
-    [profile.upperLimitC, profile.targetC, profile.lowerLimitC].map(displayTemperature)
-      .filter((value, index, list) => Number.isFinite(value) && list.indexOf(value) === index && value >= min && value <= max)
-      .sort((left, right) => right - left)
-      .forEach((tick) => {
-        if (yTicks.every((existing) => Math.abs(y(existing) - y(tick)) >= 15)) yTicks.push(tick);
-      });
+    for (let tick = min; tick <= max + niceStep / 2; tick += niceStep) {
+      yTicks.push(Number(tick.toFixed(6)));
+    }
     const grid = yTicks.map((tick) => `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(tick).toFixed(1)}" y2="${y(tick).toFixed(1)}" stroke="${tick === displayTemperature(profile.targetC) ? 'rgba(251,191,36,.45)' : 'rgba(255,255,255,.12)'}" stroke-dasharray="${tick === displayTemperature(profile.targetC) ? '2 3' : '4 4'}"/><text x="${margin.left - 6}" y="${(y(tick) + 3).toFixed(1)}" text-anchor="end" fill="#9ca3af" font-size="9">${esc(formatDisplayTemperature(tick))}</text>`).join('');
     const firstTime = points[0] ? eventTimeValue(points[0].timestamp) : null;
     const lastTime = points.at(-1) ? eventTimeValue(points.at(-1).timestamp) : null;
     const elapsedMinutes = firstTime != null && lastTime != null ? Math.max(0, Math.round((lastTime - firstTime) / 60000)) : 0;
-    const axis = `<line x1="${margin.left}" x2="${width - margin.right}" y1="${height - margin.bottom}" y2="${height - margin.bottom}" stroke="rgba(255,255,255,.2)"/><text x="${margin.left}" y="${height - 7}" fill="#6b7280" font-size="9">-${elapsedMinutes}m</text><text x="${width - margin.right}" y="${height - 7}" text-anchor="end" fill="#6b7280" font-size="9">now</text><text x="${width / 2}" y="${height - 7}" text-anchor="middle" fill="#6b7280" font-size="9">time · ${esc(timeZone)}</text><text x="10" y="${height / 2}" text-anchor="middle" transform="rotate(-90 10 ${height / 2})" fill="#6b7280" font-size="9">°${temperatureUnit}</text>`;
+    const safeRange = `${formatDisplayTemperature(profile.lowerLimitC)} to ${formatDisplayTemperature(profile.upperLimitC)}`;
+    const axis = `<line x1="${margin.left}" x2="${width - margin.right}" y1="${height - margin.bottom}" y2="${height - margin.bottom}" stroke="rgba(255,255,255,.2)"/><text x="${margin.left}" y="${height - 7}" fill="#6b7280" font-size="9">-${elapsedMinutes}m</text><text x="${width - margin.right}" y="${height - 7}" text-anchor="end" fill="#6b7280" font-size="9">now</text><text x="${width / 2}" y="${height - 7}" text-anchor="middle" fill="#6b7280" font-size="9">time · ${esc(timeZone)}</text><text x="10" y="${height / 2}" text-anchor="middle" transform="rotate(-90 10 ${height / 2})" fill="#6b7280" font-size="9">°${temperatureUnit}</text><text x="${width - margin.right}" y="10" text-anchor="end" fill="#6b7280" font-size="8">Safe ${esc(safeRange)}</text>`;
     const line = path ? `<path d="${path}" fill="none" stroke="${summary.trendKey === 'rapid_warming' || summary.trendKey === 'too_warm' ? '#fb7185' : summary.trendKey === 'rapid_cooling' || summary.trendKey === 'too_cold' ? '#60a5fa' : '#c4b5fd'}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` : '';
     const empty = points.length ? '' : `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" fill="#6b7280" font-size="10">Waiting for trend data</text>`;
     return `<svg class="pod-mini-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(summary.trendMessage)} over the last ${summary.chartWindowMinutes} minutes"><text x="${margin.left}" y="10" fill="#9ca3af" font-size="9">${summary.chartWindowMinutes} min context</text>${grid}${axis}${line}${empty}</svg>`;
@@ -197,15 +201,18 @@
     if (!latest) return;
     const summary = data.buildPodSummary(history, profile);
     const activeAlert = data.buildActiveAlerts(history, profile)[0];
-    const focusEvent = eventId
-      ? history.find((event) => String(event.event_id) === String(eventId))
-      : activeAlert?.event;
+    const focusEvent = data.selectDetailEvent(history, activeAlert, eventId) || latest;
+    const focusIndex = Math.max(0, history.findIndex((event) => String(event.event_id) === String(focusEvent?.event_id)));
     const detail = $('podDetailBackdrop');
     const status = summary.operationalStatus || latest.operational_status || 'NORMAL';
     $('podDetailTitle').textContent = latest.sensor_name;
     $('podDetailStatus').textContent = `${OPERATIONAL_STATUS_ICONS[status] || '?'} ${operationalLabel(status)}`;
     $('podDetailStatus').style.background = `${OPERATIONAL_STATUS_COLORS[status] || '#6b7280'}22`;
     $('podDetailStatus').style.color = OPERATIONAL_STATUS_COLORS[status] || '#9ca3af';
+    const eventSelect = $('podDetailEventSelect');
+    eventSelect.dataset.sensor = sensorName;
+    eventSelect.innerHTML = history.slice().reverse().map((event) => `<option value="${esc(event.event_id)}">${esc(formatDateTime(event.event_time))} · ${esc(formatC(event.temperature_c))} · ${esc(operationalLabel(event.operational_status || 'NORMAL'))}</option>`).join('');
+    eventSelect.value = focusEvent?.event_id || latest.event_id;
     const deviation = Number.isFinite(Number(latest.temperature_c)) && Number.isFinite(Number(profile.targetC)) ? Number(latest.temperature_c) - Number(profile.targetC) : null;
     $('podDetailGrid').innerHTML = [
       ['Pod ID', latest.sensor_name],
@@ -225,13 +232,20 @@
       ['Last event ID', latest.event_id],
     ].map(([label, value]) => `<div><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join('');
     $('podDetailTrend').innerHTML = `${renderPodMiniChart(summary)}<div class="detail-muted">${esc(summary.trendMessage)} · ${esc(summary.recommendation)}</div>`;
-    $('podDetailAlerts').innerHTML = focusEvent
-      ? `<div class="detail-alert"><strong>${esc(activeAlert?.severity?.toUpperCase() || 'ALERT')}: ${esc(data.alertMessageForEvent(focusEvent, profile))}</strong><br><small>Trigger event ${esc(focusEvent.event_id)} · ${esc(formatDateTime(focusEvent.event_time))} · ${esc(formatC(focusEvent.temperature_c))}</small></div>`
-      : '<div class="detail-ok">No active rule-based alerts.</div>';
-    const followups = focusEvent ? history.slice(history.findIndex((event) => String(event.event_id) === String(focusEvent.event_id)) + 1) : [];
+    const isAlertEvent = focusEvent && (focusEvent.rule_alert || focusEvent.status === 'TOO_COLD' || focusEvent.status === 'TOO_WARM' || focusEvent.operational_status === 'WARNING' || focusEvent.operational_status === 'CRITICAL');
+    $('podDetailAlerts').innerHTML = isAlertEvent
+      ? `<div class="detail-alert"><strong>${esc(String(data.alertSeverityForEvent ? data.alertSeverityForEvent(focusEvent, profile) : focusEvent.severity || 'ALERT').toUpperCase())}: ${esc(data.alertMessageForEvent(focusEvent, profile))}</strong><br><small>Selected event ${esc(focusEvent.event_id)} · ${esc(formatDateTime(focusEvent.event_time))} · ${esc(formatC(focusEvent.temperature_c))}</small></div>`
+      : '<div class="detail-ok">No alert on the selected reading.</div>';
+    const nearbyStart = Math.max(0, focusIndex - 2);
+    const nearbyEnd = Math.min(history.length, focusIndex + 3);
+    const nearby = history.slice(nearbyStart, nearbyEnd);
+    $('podDetailNearby').innerHTML = nearby.length
+      ? `<div class="detail-reading-list">${nearby.map((event) => `<div class="detail-reading${String(event.event_id) === String(focusEvent?.event_id) ? ' selected' : ''}"><span>${esc(formatDateTime(event.event_time))}</span><strong>${esc(formatC(event.temperature_c))}</strong><small>${esc(operationalLabel(event.operational_status || 'NORMAL'))} · ${esc(event.event_id)}</small></div>`).join('')}</div><div class="detail-muted">Showing up to two readings before and after the selected event.</div>`
+      : '<div class="detail-muted">No nearby readings are available.</div>';
+    const followups = focusEvent ? history.slice(focusIndex + 1) : [];
     $('podDetailFollowup').innerHTML = followups.length
       ? `<div class="detail-reading-list">${followups.map((event) => `<div class="detail-reading"><span>${esc(formatDateTime(event.event_time))}</span><strong>${esc(formatC(event.temperature_c))}</strong><small>${esc(statusLabel(event.status))} · ${esc(event.event_id)}</small></div>`).join('')}</div>`
-      : '<div class="detail-muted">No readings followed this alert in the selected scope.</div>';
+      : '<div class="detail-muted">No readings followed the selected event in the current scope.</div>';
     detail.hidden = false;
   }
 
@@ -682,6 +696,10 @@
   $('clearFilters').addEventListener('click', () => {
     ['filterStart', 'filterEnd', 'filterBatch', 'filterPod', 'filterVaccine', 'filterScenario', 'filterSeverity'].forEach((id) => { if ($(id)) $(id).value = ''; });
     applyRange('live');
+  });
+  $('podDetailEventSelect').addEventListener('change', (event) => {
+    const sensorName = event.currentTarget.dataset.sensor;
+    if (sensorName) openPodDetails(sensorName, event.currentTarget.value);
   });
   $('closePodDetail').addEventListener('click', () => { $('podDetailBackdrop').hidden = true; });
   $('podDetailBackdrop').addEventListener('click', (event) => { if (event.target.id === 'podDetailBackdrop') event.currentTarget.hidden = true; });

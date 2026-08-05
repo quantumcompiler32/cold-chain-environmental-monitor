@@ -650,6 +650,12 @@
     }).sort((left, right) => timestampValue(right.event.timestamp) - timestampValue(left.event.timestamp));
   }
 
+  function selectDetailEvent(history, activeAlert, eventId = '') {
+    const ordered = sortedEvents(history);
+    if (eventId) return ordered.find((event) => String(event.event_id) === String(eventId)) || ordered.at(-1) || null;
+    return activeAlert?.event || ordered[0] || null;
+  }
+
   function buildScenarioOutcomeSeries(events) {
     const groups = new Map();
     events.forEach((event) => {
@@ -739,6 +745,7 @@
     alertSeverityForEvent,
     alertMessageForEvent,
     buildActiveAlerts,
+    selectDetailEvent,
     buildScenarioOutcomeSeries,
     buildSensorSpreadSeries,
     buildUncertaintySeries,

@@ -60,7 +60,7 @@
         <div class="card-heading">
           <div><div class="card-title">Pod status grid</div><div class="card-sub">Pods stay in numeric order. Hover for the temperature trend and next step; click for full details.</div></div>
           <div class="status-legend" aria-label="Pod status legend">
-            <span><i class="legend-swatch normal"></i>Normal</span><span><i class="legend-swatch recovery"></i>Recovery</span><span><i class="legend-swatch warning"></i>Warning</span><span><i class="legend-swatch critical"></i>Critical</span><span><i class="legend-swatch empty"></i>Empty</span><span><i class="legend-swatch energy-waste"></i>Energy waste</span>
+            <span><i class="legend-swatch normal"></i>Normal</span><span><i class="legend-swatch recovery"></i>Recovery</span><span><i class="legend-swatch warning"></i>Warning</span><span><i class="legend-swatch critical"></i>Critical</span><span><i class="legend-swatch energy-waste"></i>Energy waste</span>
           </div>
         </div>
         <div class="pod-grid" id="podGrid"></div>
@@ -166,18 +166,21 @@
       <div class="eyebrow">POD DETAILS</div>
       <h2 id="podDetailTitle">Pod</h2>
       <div class="detail-status" id="podDetailStatus"></div>
+      <label class="detail-event-picker" for="podDetailEventSelect">Inspect reading
+        <select id="podDetailEventSelect"></select>
+      </label>
       <div class="detail-grid" id="podDetailGrid"></div>
       <div class="detail-section"><strong>Temperature trend</strong><div class="detail-trend" id="podDetailTrend"></div></div>
       <div class="detail-section"><strong>Alerts</strong><div id="podDetailAlerts"></div></div>
+      <div class="detail-section"><strong>Events around selected reading</strong><div id="podDetailNearby"></div></div>
       <div class="detail-section"><strong>Subsequent readings</strong><div id="podDetailFollowup"></div></div>
-      <div class="detail-section"><strong>ML inference</strong><div class="detail-muted">Use the Inference tab for one-event advisory analysis.</div></div>
     </section>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="../scripts/vaccine-navigation.js?v=three-tabs-1"></script>
-  <script src="../scripts/vaccine-data.js?v=mixed-grid-1"></script>
+  <script src="../scripts/vaccine-data.js?v=detail-reference-1"></script>
   <script src="../scripts/vaccine-bridge.js?v=recent-live-1"></script>
-  <script src="../scripts/vaccine.js?v=mixed-grid-3"></script>
+  <script src="../scripts/vaccine.js?v=micro-trend-details-1"></script>
 </body>
 </html>

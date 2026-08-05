@@ -123,6 +123,7 @@
       $('statIn').textContent = '0';
       $('rowCount').textContent = '0';
     },
-    '/api/live/stream'
+    '/api/live/stream',
+    { initialPath: '/api/recent' }
   );
 })(typeof globalThis === 'undefined' ? this : globalThis);

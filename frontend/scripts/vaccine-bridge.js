@@ -45,6 +45,14 @@
     });
   }
 
+  function mergeEventSets(...eventLists) {
+    const eventsById = new Map();
+    eventLists.flat().forEach((event) => {
+      if (event?.event_id) eventsById.set(String(event.event_id), event);
+    });
+    return sortEvents(Array.from(eventsById.values()));
+  }
+
   function watchEventStream(onEvents, onError, path) {
     const eventSource = new global.EventSource(`${BRIDGE_URL}${path}`);
     const eventsById = new Map();
@@ -80,9 +88,31 @@
     };
   }
 
-  function watchDatabase(onEvents, onError, path = '/api/live') {
+  function watchDatabase(onEvents, onError, path = '/api/live', options = {}) {
     if (path === '/api/live/stream' && typeof global.EventSource === 'function') {
-      return watchEventStream(onEvents, onError, path);
+      let active = true;
+      const initialEventsById = new Map();
+      const mergeInitialEvents = (streamEvents) => mergeEventSets(Array.from(initialEventsById.values()), streamEvents);
+      const stopStream = watchEventStream((streamEvents, payload) => {
+        if (!active) return;
+        if (payload?.reset) initialEventsById.clear();
+        onEvents(mergeInitialEvents(streamEvents), payload);
+      }, onError, path);
+      if (options.initialPath) {
+        request(options.initialPath).then((payload) => {
+          if (!active) return;
+          (payload.events || []).forEach((event) => {
+            if (event?.event_id) initialEventsById.set(String(event.event_id), event);
+          });
+          onEvents(mergeInitialEvents([]), payload);
+        }).catch((error) => {
+          if (active) onError(error);
+        });
+      }
+      return () => {
+        active = false;
+        stopStream();
+      };
     }
     let active = true;
     const poll = async () => {
@@ -104,5 +134,5 @@
     };
   }
 
-  return { request, exportAllEvents, watchDatabase, buildExportPath };
+  return { request, exportAllEvents, watchDatabase, buildExportPath, mergeEventSets };
 });

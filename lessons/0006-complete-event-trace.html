@@ -1,0 +1,17 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Lesson 6 · Complete event trace</title><link rel="stylesheet" href="../assets/lesson.css"></head><body>
+<p class="kicker">Cold-chain event pipeline · Lesson 6</p><h1>One event, end to end</h1>
+<p><strong>Win for this lesson:</strong> you can follow one event across every component and explain what changes at each boundary.</p>
+<div class="flow">CSV → generator → MQTT/Mosquitto → subscriber → PostgreSQL → notification → adapter → JSON/SSE → dashboard</div>
+<h2>1 · Source and generation</h2><p>The generator reads a source value from the CSV. It applies the selected scenario and vaccine storage profile, calculates measurement uncertainty and status, creates a unique <code>event_id</code>, assigns a shared <code>run_id</code>, creates <code>event_time</code>, and packages the event as JSON.</p>
+<h2>2 · Transport</h2><p>The generator publishes the JSON bytes to the MQTT topic <code>devices/temperature</code>. Mosquitto routes that message to the subscriber. Mosquitto does not decide whether the temperature is safe; it transports the message.</p>
+<h2>3 · Trust and persistence</h2><p>The subscriber receives the bytes, creates <code>received_at</code>, parses JSON, validates the contract, normalizes values, and derives operational state. It writes the generic and vaccine-specific projections in one transaction, verifies both exist, and commits. PostgreSQL records <code>stored_at</code> when persistence occurs.</p>
+<h2>4 · Wake-up and read</h2><p>After commit, PostgreSQL delivers a small notification on <code>cold_chain_events</code> containing the event ID. The adapter receives it, queries PostgreSQL for the complete committed event, maps it into the stable browser contract, and serializes it.</p>
+<h2>5 · Presentation</h2><p>The browser initially loaded its HTML, CSS, and JavaScript from port <code>8766</code>. Its JavaScript either requests JSON from the adapter’s port <code>8787</code> API or keeps an SSE connection open at <code>/api/live/stream</code>. It then renders the event as a table row, status card, alert, or chart point.</p>
+<h2>The three timestamps</h2><ul><li><code>event_time</code> — event creation at the generator.</li><li><code>received_at</code> — arrival at the subscriber.</li><li><code>stored_at</code> — database persistence time.</li></ul><p>The differences between them help diagnose transport and processing latency.</p>
+<div class="check"><strong>Final trace exercise</strong><p>Explain this event in your own words:</p><pre>temperature_c: -79.88
+storage range: -80 to -60
+severity: warning
+event_time: 09:06:25.364
+received_at: 09:06:25.543
+stored_at: 09:06:25.543</pre><ol><li>Which component created it?</li><li>Which component decided it was a boundary-risk warning?</li><li>Which component wrote PostgreSQL?</li><li>Which component sends it to the browser?</li><li>Why is <code>received_at</code> later than <code>event_time</code>?</li></ol><p>After you answer, I’ll assess your full pipeline understanding and identify any remaining gaps.</p></div>
+<p class="source">Repository reference: <a href="../docs/architecture-and-pipeline.md">complete architecture map</a>.</p></body></html>
