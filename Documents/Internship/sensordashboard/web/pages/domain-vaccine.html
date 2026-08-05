@@ -1,12 +1,12 @@
 <!doctype html>
+<!-- Purpose: show filterable vaccine analytics derived from persisted events. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vaccine Cold Chain</title>
   <link rel="stylesheet" href="../styles/shared.css">
-  <link rel="stylesheet" href="../styles/vaccine.css?v=analytics-prototype-3">
-  <link rel="stylesheet" href="../styles/vaccine-trend-prototype.css?v=axes-1">
+  <link rel="stylesheet" href="../styles/vaccine.css?v=analytics-1">
   <link rel="stylesheet" href="../styles/vaccine-monitoring.css?v=monitoring-1">
   <link rel="stylesheet" href="../styles/phase1-vaccine-skin.css?v=phase1-skin-1">
 </head>
@@ -16,7 +16,6 @@
       <div data-vaccine-tabs></div>
       <header class="page-header">
         <div>
-          <div class="eyebrow"><span class="demo-pill" id="modePill">POSTGRESQL</span><span id="dataMode">Waiting for PostgreSQL events</span></div>
           <h1>Vaccine cold-chain overview</h1>
           <p>Analyze persisted vaccine events, pod health, scenarios, and temperature trends. The event pipeline runs independently in the terminal.</p>
         </div>
@@ -64,9 +63,6 @@
         </div>
         <div class="pod-grid" id="podGrid"></div>
       </section>
-
-      <!-- PROTOTYPE: Three analytics layouts, switchable with ?variant=A|B|C. -->
-      <section id="analyticsPrototype" class="analytics-prototype" aria-live="polite"></section>
 
       <section class="profile-strip" aria-label="Active vaccine profile">
         <div><span class="profile-label">Active profile</span><strong id="profileName">Pfizer ultralow</strong></div>
@@ -175,6 +171,5 @@
   <script src="../scripts/vaccine-data.js?v=workstream-b-1"></script>
   <script src="../scripts/vaccine-bridge.js?v=workstream-b-1"></script>
   <script src="../scripts/vaccine.js?v=workstream-b-1"></script>
-  <script src="../scripts/vaccine-analytics-prototype.js?v=analytics-prototype-3"></script>
 </body>
 </html>

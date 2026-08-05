@@ -50,9 +50,9 @@ MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 MQTT_TOPIC = "devices/temperature"
 
-# The bundled dataset lives in the archived support area so the main tree stays
-# small and the dashboard files remain easy to find.
-CSV_FILE = Path(__file__).resolve().parents[1] / "archive" / "data" / "Test1_TempCO2O2.csv"
+# The bundled dataset is a reproducible source-variation fixture. It lives in
+# the canonical data directory; it does not provide live event timestamps.
+CSV_FILE = Path(__file__).resolve().parents[1] / "data" / "Test1_TempCO2O2.csv"
 DEFAULT_SENSOR = "Pod1"
 DEFAULT_INTERVAL_MS = 2000
 # The source file is a Pfizer ultralow experiment. Keep its small variations
@@ -382,7 +382,7 @@ def load_temperature_data(csv_path: Path, requested_sensor: str):
     if not csv_path.exists():
         raise FileNotFoundError(
             f"CSV file not found: {csv_path.resolve()}\n"
-            "Place archive/data/Test1_TempCO2O2.csv in the repository support area."
+            "Place data/Test1_TempCO2O2.csv in the repository data directory."
         )
 
     # pandas loads the CSV into a table so we can select a sensor column by
@@ -474,7 +474,11 @@ def make_event(
             SENSOR_TOLERANCE_C,
         )
     )
-    event.update(derive_operational_state(event))
+    # Compare against the event's creation instant here so deterministic unit
+    # tests may use historical fixture times without making the generator label
+    # its own newly-created preview event as stale. The subscriber re-evaluates
+    # age at ingestion and is the authority for persisted operational state.
+    event.update(derive_operational_state(event, now=generated_event_time))
     return event
 
 

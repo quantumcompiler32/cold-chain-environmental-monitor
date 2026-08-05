@@ -1,3 +1,5 @@
+"""Verify HTTP routes, static assets, and documented cross-port 404 behavior."""
+
 import json
 import threading
 import unittest

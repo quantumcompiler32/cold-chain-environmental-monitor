@@ -1,3 +1,5 @@
+"""Verify destructive reset commands require safe environment confirmation."""
+
 import os
 import subprocess
 import sys

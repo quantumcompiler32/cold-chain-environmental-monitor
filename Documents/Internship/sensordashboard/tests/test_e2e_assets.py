@@ -1,3 +1,5 @@
+"""Verify the deterministic E2E manifest and generated report contract."""
+
 import json
 import unittest
 from pathlib import Path

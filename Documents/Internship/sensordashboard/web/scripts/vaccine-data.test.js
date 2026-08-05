@@ -1,3 +1,4 @@
+/* Purpose: test event normalization, filters, units, aggregation, and averages. */
 const assert = require('node:assert/strict');
 const test = require('node:test');
 

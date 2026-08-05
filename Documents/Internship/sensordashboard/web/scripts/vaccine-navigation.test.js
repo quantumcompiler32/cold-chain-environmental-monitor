@@ -1,3 +1,4 @@
+/* Purpose: verify navigation paths remain valid from both index and page roots. */
 const assert = require('node:assert/strict');
 const test = require('node:test');
 

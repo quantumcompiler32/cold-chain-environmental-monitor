@@ -1,3 +1,5 @@
+"""Run opt-in PostgreSQL integration checks against the configured local DB."""
+
 import os
 import unittest
 from datetime import datetime, timezone

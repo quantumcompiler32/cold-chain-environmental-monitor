@@ -1,3 +1,5 @@
+"""Verify the writer's all-or-nothing generic and vaccine database writes."""
+
 import json
 import unittest
 from datetime import datetime, timezone

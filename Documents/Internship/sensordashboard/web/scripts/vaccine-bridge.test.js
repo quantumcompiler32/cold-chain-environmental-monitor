@@ -1,3 +1,4 @@
+/* Purpose: test the bridge's URL construction and read-only client behavior. */
 const assert = require('node:assert/strict');
 const test = require('node:test');
 

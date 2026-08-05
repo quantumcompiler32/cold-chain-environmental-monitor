@@ -1,3 +1,5 @@
+"""Verify human-readable service output preserves critical event evidence."""
+
 import unittest
 import sys
 from datetime import datetime, timezone

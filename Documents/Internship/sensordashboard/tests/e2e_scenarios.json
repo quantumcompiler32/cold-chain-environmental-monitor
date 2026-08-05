@@ -29,8 +29,8 @@
       "count": 5,
       "seed": 103,
       "required_statuses": ["TOO_WARM", "ACCEPTABLE", "STABLE"],
-      "required_operational_statuses": ["CRITICAL", "NORMAL"],
-      "required_alerts": ["VACCINE_SAFE_RANGE_VIOLATION"],
+      "required_operational_statuses": ["CRITICAL", "RECOVERY"],
+      "required_alerts": ["VACCINE_SAFE_RANGE_VIOLATION", "TEMPERATURE_RECOVERY"],
       "required_phases": ["recovery"],
       "first_status": "TOO_WARM",
       "last_status": "STABLE"
@@ -41,8 +41,8 @@
       "count": 9,
       "seed": 104,
       "required_statuses": ["TOO_WARM", "ACCEPTABLE", "STABLE"],
-      "required_operational_statuses": ["CRITICAL", "NORMAL"],
-      "required_alerts": ["VACCINE_SAFE_RANGE_VIOLATION"],
+      "required_operational_statuses": ["CRITICAL", "RECOVERY"],
+      "required_alerts": ["VACCINE_SAFE_RANGE_VIOLATION", "TEMPERATURE_RECOVERY"],
       "required_phases": ["normal", "cooling_failure", "recovery"],
       "phase_sequence": [
         "normal",

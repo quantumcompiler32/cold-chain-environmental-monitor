@@ -1,3 +1,5 @@
+"""Verify deterministic generator scenarios, counts, and phase metadata."""
+
 import json
 import sys
 import tempfile

@@ -1,3 +1,4 @@
+/* Purpose: format inference inputs/results for the browser without persistence. */
 (function exposeVaccineInference(root, factory) {
   if (typeof module !== 'undefined' && module.exports) module.exports = factory();
   else root.VaccineInference = factory(root.fetch.bind(root));

@@ -1,3 +1,4 @@
+/* Purpose: provide the shared navigation links used by maintained dashboard pages. */
 (function exposeVaccineNavigation(root, factory) {
   if (typeof module !== 'undefined' && module.exports) module.exports = factory();
   else {

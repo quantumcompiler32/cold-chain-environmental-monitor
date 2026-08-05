@@ -1,3 +1,8 @@
+/*
+ * Purpose: render filterable analytics from rows supplied by VaccineBridge.
+ * It distinguishes each Pod's latest reading from period aggregates, then
+ * applies unit conversion, interval aggregation, and trailing moving averages.
+ */
 (function initVaccineAnalytics(global) {
   const data = global.VaccineData;
   const bridge = global.VaccineBridge;
@@ -5,13 +10,12 @@
 
   const COLORS = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#6b7280'];
   const SCENARIO_COLORS = { normal: '#10b981', recovery: '#3b82f6', mixed: '#8b5cf6', cooling_failure: '#ef4444', outlier: '#f59e0b', failure: '#ef4444' };
-  const OPERATIONAL_STATUS_COLORS = { NORMAL: '#10b981', WARNING: '#f59e0b', CRITICAL: '#ef4444', SENSOR_FAULT: '#ef4444', OFFLINE: '#6b7280', EMPTY: '#60a5fa', ENERGY_WASTE: '#ec4899' };
-  const OPERATIONAL_STATUS_ICONS = { NORMAL: '✓', WARNING: '!', CRITICAL: '!', SENSOR_FAULT: '⚠', OFFLINE: '×', EMPTY: '○', ENERGY_WASTE: '⚡' };
+  const OPERATIONAL_STATUS_COLORS = { NORMAL: '#10b981', WARNING: '#f59e0b', CRITICAL: '#ef4444', STALE: '#f97316', RECOVERY: '#3b82f6', SENSOR_FAULT: '#ef4444', OFFLINE: '#6b7280', EMPTY: '#60a5fa', ENERGY_WASTE: '#ec4899' };
+  const OPERATIONAL_STATUS_ICONS = { NORMAL: '✓', WARNING: '!', CRITICAL: '!', STALE: '⌛', RECOVERY: '↗', SENSOR_FAULT: '⚠', OFFLINE: '×', EMPTY: '○', ENERGY_WASTE: '⚡' };
   const DEFAULT_SENSORS = ['Pod1', 'Pod2', 'Pod3', 'Pod6', 'Pod11', 'Pod20'];
   let events = [];
   let selectedSensors = [];
   let profile = data.PROFILE;
-  let dataLabel = 'Waiting for PostgreSQL events';
   let renderQueued = false;
   let toastTimer;
   let stopWatching = null;
@@ -555,8 +559,6 @@
     const toleranceDisplay = Math.abs(displayTemperature(data.SENSOR_TOLERANCE_C) - displayTemperature(0));
     $('uncertaintySummary').textContent = '±' + toleranceDisplay.toFixed(1) + '°' + temperatureUnit + ' Type-T accuracy';
     $('uncertaintyCopy').textContent = borderline.toLocaleString() + ' borderline reading' + (borderline === 1 ? '' : 's') + ' and ' + crossing.toLocaleString() + ' possible boundary crossing' + (crossing === 1 ? '' : 's') + ' in the stored database events.';
-    $('dataMode').textContent = dataLabel;
-    $('modePill').textContent = 'POSTGRESQL';
     $('profileName').textContent = profileIds.length > 1 ? 'Multiple vaccine profiles' : profile.label;
     $('profileTarget').textContent = profileIds.length > 1 ? 'Profile-specific' : formatC(profile.targetC);
     $('profileRange').textContent = profileIds.length > 1 ? 'Profile-specific' : rangeText();

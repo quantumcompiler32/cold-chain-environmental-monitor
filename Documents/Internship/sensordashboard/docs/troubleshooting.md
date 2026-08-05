@@ -20,7 +20,7 @@ The ML health check is optional. The bridge health check should report
 | --- | --- | --- |
 | `pg_isready` has no response | PostgreSQL | Run `brew services start postgresql@16`; check `POSTGRES_HOST`, port, database, and local role. |
 | Listener exits or reports MQTT connection error | Mosquitto | Run `brew services start mosquitto`; verify `localhost:1883`; do not start a second broker. |
-| Generator reports `CSV file not found` | Source support data | Restore `archive/data/Test1_TempCO2O2.csv`; the CSV is guidance, not a timestamp source. |
+| Generator reports `CSV file not found` | Source support data | Restore `data/Test1_TempCO2O2.csv`; the CSV is guidance, not a timestamp source. |
 | Generator says `Sensor column ... not found` | CLI input | Use `--sensor Pod1` through `Pod20`, matching the source column names. |
 | Generator publishes but no rows appear | Listener or database | Confirm the listener includes `--write-db`; inspect its `event_rejected` or `database_write_failed` log; run `make verify`. |
 | Rows appear but dashboard is empty | Bridge/filter/browser | Check `/health`, remove restrictive query filters, and reload. The browser reads bridge responses, not PostgreSQL directly. |

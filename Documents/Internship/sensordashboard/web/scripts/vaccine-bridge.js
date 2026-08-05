@@ -1,3 +1,9 @@
+/*
+ * Purpose: expose the read-only PostgreSQL dashboard adapter to browser pages.
+ * request() handles JSON API reads, exportAllEvents() downloads filtered CSV,
+ * and watchDatabase() consumes committed snapshots/events over polling or SSE.
+ * No function in this file sends a write request or stores a second event copy.
+ */
 (function exposeVaccineBridge(global, factory) {
   const api = factory(global);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

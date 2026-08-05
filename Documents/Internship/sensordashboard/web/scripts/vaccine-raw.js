@@ -1,3 +1,4 @@
+/* Purpose: render the latest persisted raw rows and live SSE updates read-only. */
 (function initVaccineRaw(global) {
   const data = global.VaccineData;
   const bridge = global.VaccineBridge;

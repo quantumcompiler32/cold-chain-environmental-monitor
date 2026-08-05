@@ -1,3 +1,5 @@
+"""Verify the canonical SQL bootstrap and verification assets are coherent."""
+
 import unittest
 from pathlib import Path
 

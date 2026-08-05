@@ -1,3 +1,5 @@
+"""Verify event IDs, UTC timestamps, and wire-format normalization."""
+
 import unittest
 from datetime import datetime, timezone
 from uuid import UUID

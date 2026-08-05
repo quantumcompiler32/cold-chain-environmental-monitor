@@ -1,3 +1,8 @@
+/*
+ * Purpose: normalize persisted event rows and provide pure analytics helpers.
+ * Classification applies vaccine limits and sensor uncertainty; aggregation
+ * and movingAverage operate on already-read rows and never contact PostgreSQL.
+ */
 (function exposeVaccineData(root, factory) {
   const api = factory();
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
@@ -539,6 +544,8 @@
       NORMAL: 'Normal',
       WARNING: 'Warning',
       CRITICAL: 'Critical',
+      STALE: 'Stale',
+      RECOVERY: 'Recovery',
       SENSOR_FAULT: 'Sensor fault',
       EMPTY: 'Empty',
       ENERGY_WASTE: 'Energy waste',

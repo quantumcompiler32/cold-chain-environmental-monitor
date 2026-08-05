@@ -1,3 +1,4 @@
+/* Purpose: test inference request shaping and explicit insufficient-data states. */
 const assert = require('node:assert/strict');
 const test = require('node:test');
 

@@ -1,3 +1,5 @@
+"""Verify dashboard reads, filters, CSV output, and write rejection behavior."""
+
 import unittest
 from datetime import datetime, timezone
 

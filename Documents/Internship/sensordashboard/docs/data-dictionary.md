@@ -19,7 +19,7 @@ notes. The full database shape is defined by
 | `occupancy_state` | enum | `loaded`, `empty`, or `offline`. |
 | `batch_id` | nullable string | Demo batch correlation key. The E2E verifier puts its run ID here; it is not a clinical lot decision. |
 | `cooling_enabled` | boolean | Whether cooling is enabled for the simulated Pod. |
-| `operational_status` | enum | Derived Pod state: `NORMAL`, `WARNING`, `CRITICAL`, `SENSOR_FAULT`, `EMPTY`, `ENERGY_WASTE`, or `OFFLINE`. |
+| `operational_status` | enum | Derived Pod state: `NORMAL`, `WARNING`, `CRITICAL`, `STALE`, `RECOVERY`, `SENSOR_FAULT`, `EMPTY`, `ENERGY_WASTE`, or `OFFLINE`. `STALE` means the event timestamp is older than five minutes at ingestion; `RECOVERY` means an in-range recovery-phase reading. |
 | `severity` | enum | Derived attention level: `info`, `warning`, or `critical`. |
 | `rule_alert` | nullable string | Derived rule such as `VACCINE_SAFE_RANGE_VIOLATION`, `TEMPERATURE_BOUNDARY_RISK`, `POD_OFFLINE`, or `EMPTY_POD_COOLING`. |
 | `temperature_c` | decimal | Observed reading in Celsius. The source CSV's Fahrenheit value is converted before scenario logic. |

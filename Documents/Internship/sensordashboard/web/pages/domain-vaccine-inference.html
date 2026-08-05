@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- Purpose: collect one event for optional advisory ML inference. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -6,7 +7,7 @@
   <title>Vaccine Inference</title>
   <link rel="stylesheet" href="../styles/shared.css">
   <link rel="stylesheet" href="../styles/vaccine.css?v=inference-1">
-  <link rel="stylesheet" href="../styles/phase1-vaccine-skin.css?v=phase1-skin-2">
+  <link rel="stylesheet" href="../styles/phase1-vaccine-skin.css?v=phase1-skin-3">
 </head>
 <body data-vaccine-view="inference">
   <main class="tab-panel active">
@@ -27,7 +28,7 @@
         <div class="card-heading">
           <div>
             <div class="card-title" id="inferenceFormTitle">Provide an event</div>
-            <div class="card-sub">Keep it simple: the service loads the saved model and scores one event.</div>
+          <div class="card-sub">Keep it simple: the service loads the saved model, explains the signal, and scores one event.</div>
           </div>
           <span class="table-hint">HTTP · PORT 5000</span>
         </div>
@@ -76,6 +77,6 @@
   <script src="../scripts/vaccine-navigation.js?v=three-tabs-1"></script>
   <script src="../scripts/vaccine-bridge.js?v=readonly-2"></script>
   <script src="../scripts/vaccine-inference.js?v=shared-inference-1"></script>
-  <script src="../scripts/vaccine-inference-page.js?v=inference-page-1"></script>
+  <script src="../scripts/vaccine-inference-page.js?v=inference-page-2"></script>
 </body>
 </html>

@@ -1,3 +1,5 @@
+"""Verify the optional local ML bundle and its explicit data-boundary rules."""
+
 import csv
 import json
 import tempfile

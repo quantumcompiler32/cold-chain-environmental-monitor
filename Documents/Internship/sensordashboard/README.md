@@ -102,30 +102,96 @@ MQTT_PORT=1883
 MQTT_TOPIC=devices/temperature
 ```
 
-## Reproducible demo commands
+## Database setup
 
-Run each long-running command in its own terminal.
-
-Once the listener, dashboard bridge, and website are running, this single
-command demos every Pod-grid status and fills Pods 1–20:
+The application expects a local PostgreSQL database named `iotdb`. Create the
+database and apply the canonical schema once:
 
 ```bash
-make demo-all COUNT=30 INTERVAL_MS=200 OUTPUT_MODE=summary
+createdb iotdb
+psql -d iotdb -f database/bootstrap/001_core.sql
 ```
+
+If the database or role already exists, skip `createdb`. Set the `POSTGRES_*`
+variables above when the local role is not the current macOS user. The
+bootstrap schema creates `telemetry_logs`, `vaccine_temperature_events`,
+required indexes, and the `dashboard_events` notification channel. Migrations
+under `database/migrations/` are only for an existing legacy database.
+
+## Required startup order
+
+Run each long-running command in its own terminal. This order is part of the
+reproducible contract and identifies who owns each responsibility.
+
+1. Check infrastructure and schema readiness:
+
+   ```bash
+   pg_isready -h "${POSTGRES_HOST:-localhost}" -p "${POSTGRES_PORT:-5432}"
+   nc -z "${MQTT_BROKER:-localhost}" "${MQTT_PORT:-1883}"
+   python3 scripts/verify_database.py
+   ```
+
+   If either service is stopped, run `make start-infrastructure` and repeat
+   the checks.
+
+2. Start the listener/database writer (Terminal 1):
+
+   ```bash
+   make start-listener LISTENER_OUTPUT_MODE=verbose
+   ```
+
+   `services.temperature_subscriber` owns the normal MQTT-to-PostgreSQL write
+   transaction and writes both projections atomically.
+
+3. Start the read-only dashboard adapter (Terminal 2):
+
+   ```bash
+   make start-dashboard
+   ```
+
+   Confirm it with `curl http://127.0.0.1:8787/ready`.
+
+4. Start the static dashboard server (Terminal 3):
+
+   ```bash
+   python3 -m http.server 8766 --bind 127.0.0.1 --directory web
+   ```
+
+5. Start the optional ML service (Terminal 4) only when the Inference tab is
+   being demonstrated:
+
+   ```bash
+   make start-ml-service
+   ```
+
+6. Open <http://127.0.0.1:8766/pages/domain-vaccine.html>. Start the event
+   generator last, from another terminal:
+
+   ```bash
+   make run-scenario SENSORS=Pod1 SCENARIO=mixed COUNT=9 INTERVAL_MS=100 SEED=104
+   ```
+
+   To demonstrate all supported Pod-grid states and fill Pods 1–20, use:
+
+   ```bash
+   make demo-all COUNT=30 INTERVAL_MS=200 OUTPUT_MODE=summary
+   ```
+
+7. Verify the same latest events in PostgreSQL and through the dashboard API:
+
+   ```bash
+   make verify-fast
+   make verify
+   curl http://127.0.0.1:8787/api/verification/latest-events
+   curl 'http://127.0.0.1:8787/api/events?limit=10'
+   ```
+
+   The `event_id`, `run_id`, `sensor_name`, and `event_time` returned by the
+   latest-events query must match the events shown at
+   <http://127.0.0.1:8766/pages/domain-vaccine-raw.html>. The API is a
+   read-only view of PostgreSQL, not a second event store.
 
 Use `COUNT=10` for a faster run.
-
-```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
-source .venv/bin/activate
-brew services start postgresql@16
-brew services start mosquitto
-APP_ENV=demo python3 scripts/reset_demo.py --confirm-reset
-python3 -m services.temperature_subscriber --write-db --output-mode verbose
-python3 -m services.temperature_event_generator --scenario normal --count 30 --interval-ms 100 --seed 42 --output-mode summary
-python3 scripts/verify_persistence.py
-python3 -m services.dashboard_bridge
-```
 
 Start the ML inference service in another terminal:
 
@@ -153,16 +219,9 @@ python3 -m services.temperature_event_generator \
 
 Comma-separated Pods work too: `--sensor Pod1,Pod2,Pod3`.
 
-Serve the browser in another terminal:
-
-```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard/web
-python3 -m http.server 8765 --bind 127.0.0.1
-```
-
-Open <http://127.0.0.1:8765/index.html> for analytics or
-<http://127.0.0.1:8765/pages/domain-vaccine-raw.html> for the live raw event
-stream.
+Open <http://127.0.0.1:8766/index.html> for the domain index or
+<http://127.0.0.1:8766/pages/domain-vaccine-raw.html> for the live raw event
+stream. The API remains on port 8787; page assets remain on port 8766.
 
 The generator supports five current user-facing scenarios:
 
@@ -234,6 +293,21 @@ PostgreSQL events. Historical filters can still load the retained data.
 ```bash
 APP_ENV=demo make reset-dashboard
 ```
+
+## Stop and restart
+
+Stop the generator first, then stop the static server, bridge, and listener
+with Ctrl-C in their terminals. Finally stop PostgreSQL and Mosquitto when
+they are no longer needed:
+
+```bash
+make stop-demo
+```
+
+Restart by running `make start-infrastructure`, repeating the readiness checks,
+and following the startup order above. Use `APP_ENV=demo RESET_CONFIRM=YES
+make reset-demo` only when a clean demo database is required; it deletes the
+application tables and is intentionally guarded.
 
 ## Reset safety
 

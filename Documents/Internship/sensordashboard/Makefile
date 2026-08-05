@@ -1,3 +1,7 @@
+# The Makefile is the command index for the local demo. Long-running services
+# are deliberately separate targets so their ownership is unambiguous:
+# PostgreSQL/Mosquitto are infrastructure, the subscriber writes PostgreSQL,
+# the bridge reads PostgreSQL, and the generator publishes MQTT events.
 PYTHON ?= .venv/bin/python
 APP_ENV ?= development
 LISTENER_OUTPUT_MODE ?= verbose
@@ -27,10 +31,12 @@ train-models:
 	$(PYTHON) -m services.train_models --vaccine $(or $(VACCINE),pfizer_ultralow)
 
 start-infrastructure:
+	# Infrastructure must be healthy before the listener can consume events.
 	brew services start postgresql@16
 	brew services start mosquitto
 
 start-listener:
+	# The subscriber owns the normal MQTT-to-PostgreSQL write path.
 	$(PYTHON) -m services.temperature_subscriber --write-db --output-mode $(LISTENER_OUTPUT_MODE)
 
 run-scenario:
@@ -46,6 +52,7 @@ demo-all:
 	$(PYTHON) -m services.temperature_event_generator --sensor Pod7 Pod8 Pod9 Pod10 Pod11 Pod12 Pod13 Pod14 Pod15 Pod16 Pod17 Pod18 Pod19 Pod20 --scenario normal --count $(or $(COUNT),30) --interval-ms $(or $(INTERVAL_MS),200) --output-mode $(or $(OUTPUT_MODE),summary) --seed 42
 
 start-dashboard:
+	# The bridge is read-only; serve the web/ directory separately on port 8766.
 	$(PYTHON) -m services.dashboard_bridge
 
 start-ml-service:
