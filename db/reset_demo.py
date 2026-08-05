@@ -10,9 +10,9 @@ from pathlib import Path
 import psycopg
 
 
-DB_ROOT = Path(__file__).resolve().parents[1]
-RESET_SQL = (DB_ROOT / "reset" / "reset_demo.sql").read_text()
-BOOTSTRAP_SQL = (DB_ROOT / "bootstrap" / "001_core.sql").read_text()
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RESET_SQL = (PROJECT_ROOT / "db" / "reset" / "reset_demo.sql").read_text()
+BOOTSTRAP_SQL = (PROJECT_ROOT / "db" / "bootstrap" / "001_core.sql").read_text()
 
 
 def settings() -> dict[str, object]:

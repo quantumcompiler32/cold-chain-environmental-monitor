@@ -16,16 +16,28 @@ from uuid import UUID
 import paho.mqtt.client as mqtt
 import psycopg
 
-from domain_rules import derive_operational_state, normalize_occupancy
-from event_contract import format_timestamp, now_utc, parse_timestamp
-from terminal_output import format_event_block, format_service_message
-from temperature_uncertainty import enrich_event
+try:
+    from backend.domain_rules import derive_operational_state, normalize_occupancy
+    from backend.event_contract import format_timestamp, now_utc, parse_timestamp
+    from backend.terminal_output import format_event_block, format_service_message
+    from backend.temperature_uncertainty import enrich_event
+except ImportError:  # pragma: no cover
+    from domain_rules import derive_operational_state, normalize_occupancy
+    from event_contract import format_timestamp, now_utc, parse_timestamp
+    from terminal_output import format_event_block, format_service_message
+    from temperature_uncertainty import enrich_event
 
 
 MQTT_BROKER = os.environ.get("MQTT_BROKER", "localhost")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "devices/temperature")
 EVENT_NOTIFY_CHANNEL = "cold_chain_events"
+LOGGER = logging.getLogger("temperature_subscriber")
+
+
+def log_diagnostic(event: str, *, level: int = logging.INFO, **fields: Any) -> None:
+    """Emit one machine-readable diagnostic with stable correlation fields."""
+    LOGGER.log(level, json.dumps({"event": event, "component": "temperature_subscriber", **fields}, sort_keys=True, default=str))
 
 
 def postgres_settings() -> dict[str, Any]:
@@ -64,9 +76,14 @@ REQUIRED_FIELDS = {
 @dataclass(frozen=True)
 class PersistenceResult:
     event_id: str
+    run_id: str | None
     duplicate: bool
     received_at: datetime
     stored_at: datetime | None
+
+
+class PersistenceConsistencyError(RuntimeError):
+    """Raised when the two intentional event projections are not both present."""
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -108,6 +125,7 @@ def validate_event(data: dict[str, Any]) -> dict[str, Any]:
         normalized["occupancy_state"] = normalize_occupancy(normalized.get("occupancy_state"))
         normalized["cooling_enabled"] = normalized.get("cooling_enabled", True)
         normalized["batch_id"] = normalized.get("batch_id") or None
+        normalized["run_id"] = normalized.get("run_id") or None
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Invalid event value: {exc}") from exc
 
@@ -124,6 +142,11 @@ def validate_event(data: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("cooling_enabled must be boolean.")
     if normalized["batch_id"] is not None and not isinstance(normalized["batch_id"], str):
         raise ValueError("batch_id must be a string or null.")
+    if normalized["run_id"] is not None:
+        if not isinstance(normalized["run_id"], str) or not normalized["run_id"].strip():
+            raise ValueError("run_id must be a non-empty string or null.")
+        if len(normalized["run_id"]) > 120:
+            raise ValueError("run_id must be 120 characters or fewer.")
 
     expected = enrich_event(normalized, normalized["storage_min_c"], normalized["storage_max_c"])
     for field in (
@@ -158,36 +181,36 @@ def persist_event(
     clock: Callable[[], datetime] | None = None,
     topic: str = MQTT_TOPIC,
 ) -> PersistenceResult:
-    """Write both records in one transaction using the event's stable ID."""
+    """Write both intentional projections in one transaction using event_id."""
     normalized = validate_event(event)
     received = received_at or now_utc(clock)
     stored = now_utc(clock)
     generic_sql = """
         INSERT INTO telemetry_logs
-            (event_id, device_id, topic, event_time, payload, temperature, status, received_at, stored_at)
-        VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s)
+            (event_id, run_id, device_id, topic, event_time, payload, temperature, status, received_at, stored_at)
+        VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s)
         ON CONFLICT (event_id) DO NOTHING
         RETURNING event_id
     """
     vaccine_sql = """
         INSERT INTO vaccine_temperature_events
-            (event_id, device_id, sensor_name, vaccine_type, scenario, scenario_phase,
+            (event_id, run_id, device_id, sensor_name, vaccine_type, scenario, scenario_phase,
              occupancy_state, batch_id, cooling_enabled, operational_status, severity, rule_alert,
              temperature_c, status, sensor_tolerance_c, temperature_min_possible_c,
              temperature_max_possible_c, storage_min_c, storage_max_c, uncertainty_status,
              boundary_crossing, measurement_confidence, event_time,
              received_at, stored_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (event_id) DO NOTHING
         RETURNING event_id
     """
     params_generic = (
-        normalized["event_id"], normalized["device_id"], topic,
+        normalized["event_id"], normalized["run_id"], normalized["device_id"], topic,
         normalized["event_time"], _json_payload(normalized), normalized["temperature_c"],
         normalized["status"], received, stored,
     )
     params_vaccine = (
-        normalized["event_id"], normalized["device_id"], normalized["sensor_name"],
+        normalized["event_id"], normalized["run_id"], normalized["device_id"], normalized["sensor_name"],
         normalized["vaccine_type"], normalized["scenario"], normalized.get("scenario_phase"),
         normalized["occupancy_state"], normalized["batch_id"], normalized["cooling_enabled"],
         normalized["operational_status"], normalized["severity"], normalized["rule_alert"],
@@ -204,7 +227,27 @@ def persist_event(
             generic_inserted = cursor.fetchone() is not None
             cursor.execute(vaccine_sql, params_vaccine)
             vaccine_inserted = cursor.fetchone() is not None
-            if generic_inserted and vaccine_inserted:
+            cursor.execute(
+                """
+                SELECT
+                    EXISTS (SELECT 1 FROM telemetry_logs WHERE event_id = %s) AS generic_exists,
+                    EXISTS (SELECT 1 FROM vaccine_temperature_events WHERE event_id = %s) AS vaccine_exists,
+                    (SELECT run_id FROM telemetry_logs WHERE event_id = %s) AS generic_run_id,
+                    (SELECT run_id FROM vaccine_temperature_events WHERE event_id = %s) AS vaccine_run_id
+                """,
+                (normalized["event_id"],) * 4,
+            )
+            generic_exists, vaccine_exists, generic_run_id, vaccine_run_id = cursor.fetchone()
+            if not generic_exists or not vaccine_exists:
+                raise PersistenceConsistencyError(
+                    f"event_id={normalized['event_id']} did not produce both database projections"
+                )
+            if generic_run_id != vaccine_run_id:
+                raise PersistenceConsistencyError(
+                    f"event_id={normalized['event_id']} has mismatched run_id values across projections"
+                )
+            changed = generic_inserted or vaccine_inserted
+            if changed:
                 # PostgreSQL delivers this only after the surrounding
                 # transaction commits, so the dashboard never sees a
                 # notification for a rolled-back or partial write.
@@ -213,17 +256,20 @@ def persist_event(
                     (EVENT_NOTIFY_CHANNEL, normalized["event_id"]),
                 )
 
-    duplicate = not generic_inserted or not vaccine_inserted
-    logging.getLogger(__name__).info(
-        json.dumps({
-            "event": "event_persisted",
-            "event_id": normalized["event_id"],
-            "duplicate": duplicate,
-            "generic_inserted": generic_inserted,
-            "vaccine_inserted": vaccine_inserted,
-        }, sort_keys=True)
+    duplicate = not changed
+    log_diagnostic(
+        "event_persisted",
+        event_id=normalized["event_id"],
+        run_id=normalized["run_id"],
+        duplicate=duplicate,
+        generic_inserted=generic_inserted,
+        vaccine_inserted=vaccine_inserted,
+        generic_exists=generic_exists,
+        vaccine_exists=vaccine_exists,
+        generic_run_id=generic_run_id,
+        vaccine_run_id=vaccine_run_id,
     )
-    return PersistenceResult(normalized["event_id"], duplicate, received, None if duplicate else stored)
+    return PersistenceResult(normalized["event_id"], normalized["run_id"], duplicate, received, None if duplicate else stored)
 
 
 def process_message(
@@ -251,12 +297,13 @@ def verify_database() -> int:
             cursor.execute("SELECT to_regclass('public.telemetry_logs'), to_regclass('public.vaccine_temperature_events')")
             generic_table, vaccine_table = cursor.fetchone()
             if generic_table is None or vaccine_table is None:
-                raise RuntimeError("Run db/schema.sql before starting the listener.")
+                raise RuntimeError("Run db/bootstrap/001_core.sql before starting the listener.")
             cursor.execute("SELECT COUNT(*) FROM vaccine_temperature_events")
             return cursor.fetchone()[0]
 
 
 def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = parse_arguments()
     message_count = 0
     if args.write_db:
@@ -285,6 +332,7 @@ def main() -> int:
     def on_message(client, userdata, message):
         nonlocal message_count
         message_count += 1
+        event = None
         try:
             # Capture listener receipt before validation or database work. The
             # value is passed through so it cannot be confused with stored_at.
@@ -312,13 +360,35 @@ def main() -> int:
                     received_at=received_at,
                 ), flush=True)
         except (json.JSONDecodeError, ValueError) as exc:
-            logging.getLogger(__name__).error(json.dumps({"event": "event_rejected", "error": str(exc)}))
+            log_diagnostic(
+                "event_rejected",
+                level=logging.ERROR,
+                event_id=event.get("event_id") if isinstance(event, dict) else None,
+                run_id=event.get("run_id") if isinstance(event, dict) else None,
+                error=str(exc),
+            )
             if args.output_mode == "verbose":
                 print(format_service_message("LISTENER", f"REJECTED #{message_count:04d}: {exc}"), file=sys.stderr, flush=True)
         except psycopg.Error as exc:
-            logging.getLogger(__name__).exception(json.dumps({"event": "database_write_failed", "error": str(exc)}))
+            log_diagnostic(
+                "database_write_failed",
+                level=logging.ERROR,
+                error=str(exc),
+                event_id=event.get("event_id") if isinstance(event, dict) else None,
+                run_id=event.get("run_id") if isinstance(event, dict) else None,
+            )
             if args.output_mode == "verbose":
                 print(format_service_message("LISTENER", f"DATABASE ERROR #{message_count:04d}: {exc}"), file=sys.stderr, flush=True)
+        except Exception as exc:  # pragma: no cover - protects the MQTT callback loop
+            log_diagnostic(
+                "event_processing_failed",
+                level=logging.ERROR,
+                error=str(exc),
+                event_id=event.get("event_id") if isinstance(event, dict) else None,
+                run_id=event.get("run_id") if isinstance(event, dict) else None,
+            )
+            if args.output_mode == "verbose":
+                print(format_service_message("LISTENER", f"PROCESSING ERROR #{message_count:04d}: {exc}"), file=sys.stderr, flush=True)
 
     client.on_connect = on_connect
     client.on_message = on_message

@@ -1,0 +1,183 @@
+/* Phase 1 visual skin for the real vaccine dashboard. Keep this file visual-only. */
+:root {
+  --bg: #0e1116;
+  --surface: #151922;
+  --surface2: #1d1a23;
+  --border: #2a3140;
+  --border2: #3a4151;
+  --border-accent: #3a4151;
+  --text: #e7e0ed;
+  --muted: #9ca3af;
+  --dim: #b2adbb;
+  --accent: #8b5cf6;
+  --accent-a: #2c2832;
+  --phase1-canvas: #0e1116;
+  --phase1-surface: #151922;
+  --phase1-surface-low: #1d1a23;
+  --phase1-surface-high: #2c2832;
+  --phase1-line: #2a3140;
+  --phase1-violet: #8b5cf6;
+  --phase1-lavender: #d0bcff;
+}
+
+body { background: var(--phase1-canvas); color: var(--text); }
+.vaccine-page { background: var(--phase1-canvas); padding: 28px 32px 48px; }
+.vaccine-page .page-header { margin-bottom: 24px; }
+.vaccine-page .page-header h1 { color: var(--text); font-size: clamp(28px, 4vw, 40px); letter-spacing: -.04em; }
+.vaccine-page .page-header p { color: var(--muted); font-size: 13px; }
+.vaccine-page .eyebrow { color: var(--phase1-violet); font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+
+.vaccine-page .card,
+.vaccine-page .kpi-card,
+.vaccine-page .raw-card,
+.vaccine-page .pod-detail { background: var(--phase1-surface); border-color: var(--phase1-line); border-radius: 2px; box-shadow: none; }
+.vaccine-page .card { padding: 18px; }
+.vaccine-page .card-title { color: var(--text); font-size: 14px; font-weight: 600; }
+.vaccine-page .card-sub,
+.vaccine-page .chart-help,
+.vaccine-page .table-hint { color: var(--muted); }
+
+.vaccine-page .button { background: var(--phase1-surface-low); border: 1px solid var(--phase1-line); border-radius: 2px; color: var(--phase1-lavender); }
+.vaccine-page .button:hover { background: var(--phase1-surface-high); border-color: var(--phase1-violet); color: var(--text); }
+.vaccine-page .button.primary { background: var(--phase1-violet); border-color: var(--phase1-violet); color: #1b102e; font-weight: 700; }
+.vaccine-page .button.primary:hover { background: #9a74f8; border-color: #9a74f8; }
+.vaccine-page .demo-pill,
+.vaccine-page .scope-pill,
+.vaccine-page .bridge-status { border-radius: 2px; }
+.vaccine-page .demo-pill { background: var(--phase1-surface-high); border-color: var(--phase1-violet); color: var(--phase1-lavender); }
+
+.vaccine-page .monitoring-controls { margin: 0 0 14px; }
+.vaccine-page .filter-row label { color: var(--muted); font-family: var(--mono); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+.vaccine-page .filter-row input,
+.vaccine-page .filter-row select,
+.vaccine-page .raw-filter,
+.vaccine-page .runner-grid input,
+.vaccine-page .runner-grid select { background: var(--phase1-surface-low); border-color: var(--phase1-line); border-radius: 2px; color: var(--text); }
+.vaccine-page .filter-preset,
+.vaccine-page .sensor-chip { background: var(--phase1-surface-low); border-color: var(--phase1-line); border-radius: 2px; color: var(--muted); }
+.vaccine-page .filter-preset.active,
+.vaccine-page .filter-preset:hover,
+.vaccine-page .sensor-chip.selected { background: var(--phase1-surface-high); border-color: var(--phase1-violet); color: var(--phase1-lavender); }
+
+.vaccine-page .profile-strip { background: var(--phase1-surface-low); border: 1px solid var(--phase1-line); border-left: 3px solid var(--phase1-violet); border-radius: 2px; }
+.vaccine-page .profile-label { color: var(--muted); font-family: var(--mono); font-size: 9px; }
+.vaccine-page .profile-strip strong { color: var(--text); }
+.vaccine-page .profile-note { color: var(--muted); }
+.vaccine-page .profile-note a,
+.vaccine-page .live-next-step a,
+.vaccine-page .row-action { color: var(--phase1-lavender); }
+
+.vaccine-page .attention-banner { background: var(--phase1-surface-low); border: 1px solid #6b4b14; border-left: 3px solid #f59e0b; border-radius: 2px; }
+.vaccine-page .attention-banner.safe { border-color: #1e6b55; border-left-color: #10b981; background: var(--phase1-surface-low); }
+.vaccine-page .attention-icon { border-radius: 2px; }
+.vaccine-page .kpi-row { background: var(--phase1-line); border: 1px solid var(--phase1-line); gap: 1px; }
+.vaccine-page .kpi-card { border: 0; min-height: 105px; }
+.vaccine-page .kpi-label { color: var(--muted); font-family: var(--mono); font-size: 9px; }
+.vaccine-page .kpi-value { color: var(--phase1-lavender); font-size: 27px; }
+
+.vaccine-page .chart-grid { gap: 14px; margin-top: 14px; }
+.vaccine-page .chart-wrap { background: #11161f; border: 1px solid var(--phase1-line); border-radius: 2px; }
+.vaccine-page .chart-legend,
+.vaccine-page .status-legend,
+.vaccine-page .uncertainty-copy { color: var(--muted); }
+.vaccine-page .health-summary strong { color: var(--phase1-lavender); }
+.vaccine-page .unit-table th { color: var(--muted); font-family: var(--mono); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+.vaccine-page .unit-table td { border-top: 1px solid var(--phase1-line); }
+.vaccine-page .unit-table .sensor-name { color: var(--phase1-lavender); }
+
+.vaccine-page .pod-tile { border-radius: 2px; box-shadow: none; }
+.vaccine-page .pod-tile.normal { background: #15352e; border-color: #277c67; }
+.vaccine-page .pod-tile.warning { background: #3b2f13; border-color: #9a6d19; }
+.vaccine-page .pod-tile.critical,
+.vaccine-page .pod-tile.sensor-fault { background: #3d2025; border-color: #a94d59; }
+.vaccine-page .pod-tile.stale { background: #3d2a18; border-color: #b8661b; }
+.vaccine-page .pod-tile.recovery { background: #1d3150; border-color: #3b82f6; }
+.vaccine-page .pod-tile.offline { background: #242936; border-color: #525b6d; }
+.vaccine-page .pod-tile.empty { background: #182f44; border-color: #3d79a7; }
+.vaccine-page .pod-tile.energy-waste { background: #3a1d33; border-color: #9d407d; }
+.vaccine-page .pod-hover-card { background: var(--phase1-surface-high); border-color: var(--phase1-violet); border-radius: 2px; box-shadow: none; }
+.vaccine-page .pod-detail-backdrop { background: rgba(14,17,22,.9); }
+.vaccine-page .detail-grid div { background: var(--phase1-surface-low); border-radius: 2px; }
+
+.vaccine-page .raw-toolbar { background: var(--phase1-surface-low); border-color: var(--phase1-line); }
+.vaccine-page .raw-badge { background: var(--phase1-surface-high); border: 1px solid var(--phase1-violet); border-radius: 2px; color: var(--phase1-lavender); }
+.vaccine-page .raw-label { color: var(--muted); }
+.vaccine-page .readable-raw-stream { background: #11161f; border-color: var(--phase1-line); border-radius: 2px; }
+.vaccine-page .readable-raw-row { background: var(--phase1-surface); border-color: var(--phase1-line); border-left-color: var(--phase1-violet); border-radius: 2px; }
+.vaccine-page .raw-context { background: var(--phase1-surface-low); border-color: var(--phase1-line); }
+.vaccine-page .raw-payload { border-color: var(--phase1-line); }
+.vaccine-page .raw-payload summary { color: var(--phase1-lavender); }
+.vaccine-page .raw-footer { background: var(--phase1-surface-low); border-color: var(--phase1-line); }
+
+.vaccine-page .toast { background: var(--phase1-surface-high); border-color: var(--phase1-violet); border-radius: 2px; box-shadow: none; }
+
+.vaccine-tabs { align-items: stretch; background: var(--phase1-surface); border: 1px solid var(--phase1-line); display: flex; gap: 6px; margin-bottom: 18px; max-width: none; padding: 5px; width: 100%; }
+.vaccine-tab { align-items: center; border-bottom: 2px solid transparent; color: var(--muted); display: inline-flex; flex: 1 1 0; font-family: var(--mono); font-size: 10px; font-weight: 700; justify-content: center; letter-spacing: .06em; min-width: 0; padding: 9px 14px 8px; text-decoration: none; text-transform: uppercase; }
+.vaccine-tab:hover { background: var(--phase1-surface-low); color: var(--text); }
+.vaccine-tab.active { background: var(--phase1-surface-high); border-bottom-color: var(--phase1-violet); color: var(--phase1-lavender); }
+.vaccine-tab:focus-visible { outline: 2px solid var(--phase1-lavender); outline-offset: -2px; }
+
+.inference-page .inference-card { max-width: 960px; }
+.inference-page .inference-form { display: grid; gap: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.inference-page .inference-form label { color: var(--muted); display: flex; flex-direction: column; font-family: var(--mono); font-size: 9px; gap: 6px; letter-spacing: .06em; text-transform: uppercase; }
+.inference-page .field { background: var(--phase1-surface-low); border: 1px solid var(--phase1-line); border-radius: 2px; color: var(--text); font: inherit; min-height: 36px; padding: 8px 9px; text-transform: none; }
+.inference-page .field:focus { border-color: var(--phase1-violet); outline: 2px solid rgba(139,92,246,.25); outline-offset: 1px; }
+.inference-page .inference-actions { align-items: end; display: flex; flex-wrap: wrap; gap: 8px; grid-column: 1 / -1; }
+.inference-page .inference-feedback { border-left: 2px solid var(--phase1-line); color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: 16px; padding: 8px 10px; }
+.inference-page .inference-feedback.success { border-left-color: #10b981; color: #a7f3d0; }
+.inference-page .inference-feedback.error { border-left-color: #ef4444; color: #fecaca; }
+.inference-page .inference-result { display: grid; gap: 18px; grid-template-columns: minmax(180px, .7fr) 1.3fr; margin-top: 14px; max-width: 960px; }
+.inference-page .inference-result[hidden] { display: none; }
+.inference-page .inference-primary { border-left: 3px solid var(--phase1-violet); display: flex; flex-direction: column; gap: 7px; padding: 6px 14px; }
+.inference-page .inference-primary strong { color: var(--phase1-lavender); font-size: 38px; letter-spacing: -.04em; }
+.inference-page .inference-primary span:last-child { color: var(--dim); font-size: 11px; }
+.inference-page .inference-secondary { display: grid; gap: 10px; grid-column: 1 / -1; grid-template-columns: repeat(3, 1fr); }
+.inference-page .inference-secondary div { background: var(--phase1-surface-low); border: 1px solid var(--phase1-line); border-radius: 2px; display: flex; flex-direction: column; gap: 7px; padding: 12px; }
+.inference-page .inference-secondary small { color: var(--muted); font-family: var(--mono); font-size: 9px; text-transform: uppercase; }
+.inference-page .inference-secondary b { color: var(--text); font-size: 13px; }
+.inference-page .inference-result .subtle { color: var(--muted); font-size: 10px; grid-column: 1 / -1; line-height: 1.5; }
+.inference-page .inference-explanation { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.inference-page .inference-explanation p { color: var(--dim); font-size: 12px; line-height: 1.55; margin: 0; }
+.inference-page .probability-meter { background: var(--phase1-line); border-radius: 2px; height: 9px; margin-top: 8px; overflow: hidden; }
+.inference-page .probability-meter i { background: linear-gradient(90deg, #8b5cf6, #f59e0b, #ef4444); display: block; height: 100%; }
+.inference-page .inference-primary small { color: var(--muted); display: flex; font-family: var(--mono); font-size: 8px; justify-content: space-between; }
+.inference-page .inference-primary small span { color: #fbbf24; }
+.inference-page .inference-feature-list { display: grid; gap: 7px; grid-template-columns: repeat(3, 1fr); margin-top: auto; }
+.inference-page .inference-feature-list div { background: var(--phase1-surface-low); border: 1px solid var(--phase1-line); border-radius: 2px; display: flex; flex-direction: column; gap: 4px; padding: 8px; }
+.inference-page .inference-feature-list small { color: var(--muted); font-family: var(--mono); font-size: 8px; text-transform: uppercase; }
+.inference-page .inference-feature-list b { color: var(--text); font-size: 11px; }
+.inference-page .inference-chart-card { background: #11161f; border: 1px solid var(--phase1-line); border-radius: 2px; grid-column: 1 / -1; min-width: 0; padding: 12px; }
+.inference-page .inference-chart-heading { align-items: flex-start; display: flex; gap: 12px; justify-content: space-between; }
+.inference-page .inference-chart-heading div { display: flex; flex-direction: column; gap: 3px; }
+.inference-page .inference-chart-heading strong { color: var(--text); font-size: 12px; }
+.inference-page .inference-chart-heading span { color: var(--muted); font-size: 9px; }
+.inference-page .inference-chart { display: block; height: auto; margin-top: 7px; width: 100%; }
+.inference-page .inference-chart-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+.inference-page .inference-chart-legend span { align-items: center; color: var(--muted); display: inline-flex; font-size: 9px; gap: 5px; }
+.inference-page .inference-chart-legend i { background: #c4b5fd; border-radius: 50%; height: 7px; width: 7px; }
+.inference-page .inference-chart-legend i.submitted { background: #f9a8d4; }
+.inference-page .inference-chart-legend i.forecast { background: #fbbf24; }
+.inference-page .inference-chart-empty { color: var(--muted); font-size: 11px; padding: 40px 10px; text-align: center; }
+.inference-page .safety-note { background: var(--phase1-surface-low); border: 1px solid #6b4b14; border-left: 3px solid #f59e0b; color: var(--dim); font-size: 11px; line-height: 1.5; margin-top: 14px; max-width: 960px; padding: 12px 14px; }
+.inference-page .safety-note strong { color: #fbbf24; }
+
+@media (max-width: 760px) {
+  .vaccine-tabs { max-width: none; overflow-x: auto; }
+  .vaccine-tab { min-width: 100px; white-space: nowrap; }
+  .inference-page .inference-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inference-page .inference-result { grid-template-columns: 1fr; }
+  .inference-page .inference-feature-list { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 480px) {
+  .inference-page .inference-form { grid-template-columns: 1fr; }
+  .inference-page .inference-secondary { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 900px) {
+  .vaccine-page { padding: 24px 18px 42px; }
+}
+
+@media (max-width: 600px) {
+  .vaccine-page { padding: 18px 12px 34px; }
+}

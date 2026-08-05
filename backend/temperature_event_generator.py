@@ -33,10 +33,16 @@ import pandas as pd
 # paho-mqtt is the messenger that publishes events to Mosquitto.
 import paho.mqtt.client as mqtt
 
-from domain_rules import derive_operational_state, normalize_occupancy
-from temperature_uncertainty import SENSOR_TOLERANCE_C, classify_uncertainty
-from event_contract import format_timestamp, now_utc, parse_timestamp
-from terminal_output import format_event_block, format_service_message
+try:
+    from backend.domain_rules import derive_operational_state, normalize_occupancy
+    from backend.temperature_uncertainty import SENSOR_TOLERANCE_C, classify_uncertainty
+    from backend.event_contract import format_timestamp, now_utc, parse_timestamp
+    from backend.terminal_output import format_event_block, format_service_message
+except ImportError:  # pragma: no cover - keeps direct script execution working.
+    from domain_rules import derive_operational_state, normalize_occupancy
+    from temperature_uncertainty import SENSOR_TOLERANCE_C, classify_uncertainty
+    from event_contract import format_timestamp, now_utc, parse_timestamp
+    from terminal_output import format_event_block, format_service_message
 
 
 # The local Mosquitto broker and topic shared with temperature_subscriber.py.
@@ -44,6 +50,9 @@ MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 MQTT_TOPIC = "devices/temperature"
 
+# The bundled dataset is a reproducible source-variation fixture. It lives in
+# the canonical data directory; it does not provide live event timestamps.
+CSV_FILE = Path(__file__).resolve().parents[1] / "ai_worker" / "data" / "Test1_TempCO2O2.csv"
 DEFAULT_SENSOR = "Pod1"
 DEFAULT_INTERVAL_MS = 2000
 # The source file is a Pfizer ultralow experiment. Keep its small variations
@@ -151,7 +160,7 @@ def parse_arguments() -> argparse.Namespace:
     # argparse converts Terminal text such as --max-events 20 into Python
     # values that the rest of the program can use.
     parser = argparse.ArgumentParser(
-        description="Generate vaccine temperature events and publish them to MQTT."
+        description="Replay CSV temperature readings to MQTT."
     )
     parser.add_argument(
         "--sensor",
@@ -165,8 +174,8 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--csv-file",
-        default=None,
-        help="Optional external CSV file to replay; otherwise use built-in deterministic guidance.",
+        default=str(CSV_FILE),
+        help="CSV file to replay; defaults to the bundled experiment file.",
     )
     parser.add_argument(
         "--interval-ms",
@@ -216,6 +225,10 @@ def parse_arguments() -> argparse.Namespace:
         help="Seed scenario/value selection and generated event IDs.",
     )
     parser.add_argument(
+        "--run-id",
+        help="Correlation ID shared by every event in this generator run; defaults to a new UUID.",
+    )
+    parser.add_argument(
         "--output-mode",
         choices=("none", "summary", "verbose"),
         default="summary",
@@ -224,7 +237,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--write-db",
         action="store_true",
-        help="Persist directly through the shared dual-write service; normally the listener owns database writes.",
+        help="Write directly through the persistence service instead of publishing to MQTT.",
     )
     parser.add_argument(
         "--min-temp",
@@ -364,25 +377,12 @@ def transform_temperature(
     raise ValueError(f"Unknown scenario: {scenario}")
 
 
-def built_in_temperature_data(requested_sensor: str):
-    """Return small deterministic guidance so the demo needs no raw CSV."""
-    temperatures_c = [-78.7, -78.5, -78.3, -78.4, -78.6]
-    temperatures_f = [(value * 9.0 / 5.0) + 32.0 for value in temperatures_c]
-    return requested_sensor, pd.DataFrame({
-        "temperature_f": temperatures_f,
-        "temperature_c": temperatures_c,
-    })
-
-
-def load_temperature_data(csv_path: Path | None, requested_sensor: str):
+def load_temperature_data(csv_path: Path, requested_sensor: str):
     """Load one sensor column and return usable timestamps and Celsius values."""
-    if csv_path is None:
-        return built_in_temperature_data(requested_sensor)
-
     if not csv_path.exists():
         raise FileNotFoundError(
             f"CSV file not found: {csv_path.resolve()}\n"
-            "Provide a valid external file with --csv-file or omit that option to use built-in guidance."
+            "Place ai_worker/data/Test1_TempCO2O2.csv in the repository AI-worker directory."
         )
 
     # pandas loads the CSV into a table so we can select a sensor column by
@@ -423,6 +423,7 @@ def make_event(
     event_number: int,
     total_events: int,
     event_id: str | None = None,
+    run_id: str | None = None,
     event_time: datetime | None = None,
     occupancy_state: str = "loaded",
     batch_id: str | None = None,
@@ -442,6 +443,7 @@ def make_event(
     generated_event_time = now_utc(lambda: event_time) if event_time is not None else now_utc()
     event = {
         "event_id": event_id or str(uuid4()),
+        "run_id": run_id,
         "device_id": "vaccine_temperature_simulator",
         "event_time": format_timestamp(generated_event_time),
         # Legacy aliases remain on the wire while consumers migrate.
@@ -472,7 +474,11 @@ def make_event(
             SENSOR_TOLERANCE_C,
         )
     )
-    event.update(derive_operational_state(event))
+    # Compare against the event's creation instant here so deterministic unit
+    # tests may use historical fixture times without making the generator label
+    # its own newly-created preview event as stale. The subscriber re-evaluates
+    # age at ingestion and is the authority for persisted operational state.
+    event.update(derive_operational_state(event, now=generated_event_time))
     return event
 
 
@@ -490,22 +496,28 @@ def main() -> int:
         sensor_runs = []
         for requested_sensor in args.sensor:
             sensor_name, readings = load_temperature_data(
-                Path(args.csv_file) if args.csv_file else None,
-                requested_sensor,
+                Path(args.csv_file), requested_sensor
             )
             sensor_runs.append({
                 "sensor_name": sensor_name,
                 "readings": readings,
                 "index": rng.randrange(len(readings)) if args.seed is not None else 0,
             })
-        client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
-        client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        client.loop_start()
+        client = None
+        direct_persist = None
+        if args.write_db:
+            from backend.temperature_subscriber import persist_event
+            direct_persist = persist_event
+        else:
+            client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+            client.connect(MQTT_BROKER, MQTT_PORT, 60)
+            client.loop_start()
     except (FileNotFoundError, ValueError, OSError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         print("Make sure Mosquitto is running on localhost:1883.", file=sys.stderr)
         return 1
 
+    run_id = args.run_id or str(uuid4())
     if args.output_mode == "verbose":
         sensor_list = ", ".join(run["sensor_name"] for run in sensor_runs)
         readings_list = ", ".join(
@@ -514,7 +526,8 @@ def main() -> int:
         )
         print(format_service_message("GENERATOR", f"sensors={sensor_list}; vaccine={profile.name}; scenario={args.scenario}"), flush=True)
         print(format_service_message("GENERATOR", f"temperature_range={profile.min_c}°C to {profile.max_c}°C; usable_readings={readings_list}"), flush=True)
-        print(format_service_message("GENERATOR", f"publishing_to={MQTT_TOPIC}; seed={args.seed}; interval_ms={args.interval_ms}; occupancy={args.occupancy_state}"), flush=True)
+        destination = "PostgreSQL (direct write)" if args.write_db else f"MQTT {MQTT_TOPIC}"
+        print(format_service_message("GENERATOR", f"destination={destination}; run_id={run_id}; seed={args.seed}; interval_ms={args.interval_ms}; occupancy={args.occupancy_state}"), flush=True)
         print(format_service_message("GENERATOR", "Press Control-C to stop."), flush=True)
 
     # Reuse source rows cyclically when max-events is larger than the dataset.
@@ -536,13 +549,6 @@ def main() -> int:
     }
     per_sensor_published = Counter()
     per_sensor_failed = Counter()
-    direct_persist = None
-    if args.write_db:
-        try:
-            from temperature_subscriber import persist_event
-            direct_persist = persist_event
-        except ImportError:  # pragma: no cover
-            from temperature_subscriber import persist_event
     try:
         while args.count == 0 or count < args.count:
             # Each loop is one round: publish one event for every selected Pod
@@ -557,6 +563,7 @@ def main() -> int:
                     event_number=count + 1,
                     total_events=args.count,
                     event_id=str(UUID(int=rng.getrandbits(128))) if args.seed is not None else None,
+                    run_id=run_id,
                     occupancy_state=args.occupancy_state,
                     batch_id=batch_ids[sensor_name],
                     cooling_enabled=args.cooling_enabled,
@@ -569,20 +576,35 @@ def main() -> int:
                 event_time = parse_timestamp(event["event_time"], "event_time", assume_utc=False)
                 first_event_time = first_event_time or event_time
                 last_event_time = event_time
-                # Publish without waiting for a reply from the subscriber.
-                result = client.publish(MQTT_TOPIC, json.dumps(event), qos=0)
-                result.wait_for_publish()
+                write_result = None
+                if direct_persist is not None:
+                    try:
+                        write_result = direct_persist(event, topic=MQTT_TOPIC)
+                        publish_succeeded = True
+                    except Exception as exc:  # pragma: no cover - exercised by live DB failures
+                        publish_succeeded = False
+                        failed += 1
+                        per_sensor_failed[sensor_name] += 1
+                        print(json.dumps({
+                            "event": "database_write_failed",
+                            "event_id": event["event_id"],
+                            "run_id": run_id,
+                            "error": str(exc),
+                        }, sort_keys=True), file=sys.stderr, flush=True)
+                else:
+                    # Publish without waiting for a reply from the subscriber.
+                    result = client.publish(MQTT_TOPIC, json.dumps(event), qos=0)
+                    result.wait_for_publish()
+                    publish_succeeded = result.rc == mqtt.MQTT_ERR_SUCCESS
 
-                if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                if publish_succeeded:
                     published += 1
                     per_sensor_published[sensor_name] += 1
-                    write_result = None
-                    if direct_persist is not None:
-                        write_result = direct_persist(event, topic=MQTT_TOPIC)
                     if args.output_mode == "verbose":
-                        outcome = "PUBLISHED"
-                        if write_result is not None:
-                            outcome += " + DUPLICATE" if write_result.duplicate else " + DB STORED"
+                        if direct_persist is not None:
+                            outcome = "DB DUPLICATE" if write_result.duplicate else "DB STORED"
+                        else:
+                            outcome = "PUBLISHED"
                         print(format_event_block(
                             event,
                             component="GENERATOR",
@@ -592,9 +614,10 @@ def main() -> int:
                             stored_at=write_result.stored_at if write_result is not None else None,
                         ), flush=True)
                 else:
-                    failed += 1
-                    per_sensor_failed[sensor_name] += 1
-                    if args.output_mode != "none":
+                    if direct_persist is None:
+                        failed += 1
+                        per_sensor_failed[sensor_name] += 1
+                    if direct_persist is None and args.output_mode != "none":
                         print(format_service_message("GENERATOR", f"PUBLISH FAILED {sensor_name} round #{count + 1:04d}; mqtt_code={result.rc}"), file=sys.stderr, flush=True)
 
                 run["index"] = (run["index"] + 1) % len(run["readings"])
@@ -606,8 +629,9 @@ def main() -> int:
         if args.output_mode != "none":
             print("\n" + format_service_message("GENERATOR", "Stopping temperature event generator."), flush=True)
     finally:
-        client.loop_stop()
-        client.disconnect()
+        if client is not None:
+            client.loop_stop()
+            client.disconnect()
     elapsed = max(time.perf_counter() - started, 1e-9)
     if args.output_mode == "summary":
         print(json.dumps({
@@ -618,6 +642,8 @@ def main() -> int:
             "generated": count * len(sensor_runs),
             "published": published,
             "failed": failed,
+            "run_id": run_id,
+            "database_write_mode": bool(direct_persist),
             "per_pod": {
                 sensor_name: {
                     "published": per_sensor_published[sensor_name],

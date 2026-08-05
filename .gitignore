@@ -4,7 +4,7 @@ __pycache__/
 .DS_Store
 *.log
 .dashboard_uploads/
-.pio/
-*.elf
-*.bin
-*.hex
+test-reports/
+
+# Keep the optional AI artifacts in the handoff so another checkout can run
+# the inference tab without retraining first. Python caches remain ignored.

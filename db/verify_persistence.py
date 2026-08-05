@@ -13,8 +13,8 @@ from uuid import UUID
 import psycopg
 
 
-DB_ROOT = Path(__file__).resolve().parents[1]
-LATEST_SQL = (DB_ROOT / "verification" / "latest_events.sql").read_text()
+ROOT = Path(__file__).resolve().parents[1]
+LATEST_SQL = (ROOT / "db" / "verification" / "latest_events.sql").read_text()
 LATEST_QUERY, SUMMARY_QUERY = LATEST_SQL.split("\n\nSELECT\n", 1)
 SUMMARY_QUERY = "SELECT\n" + SUMMARY_QUERY
 

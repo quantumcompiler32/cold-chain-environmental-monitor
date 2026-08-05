@@ -1,11 +1,18 @@
-"""Consistent human-readable terminal output for the live demo services."""
+"""Consistent human-readable terminal output for the live demo backend."""
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from event_contract import format_timestamp
+try:
+    from backend.event_contract import format_timestamp, parse_timestamp
+except ImportError:  # pragma: no cover - keeps direct script execution working.
+    from event_contract import format_timestamp, parse_timestamp
+
+
+CALIFORNIA_TIMEZONE = ZoneInfo("America/Los_Angeles")
 
 
 def _value(value: Any) -> str:
@@ -20,6 +27,15 @@ def _temperature(value: Any) -> str:
     if value in (None, ""):
         return "-"
     return f"{float(value):.2f} °C"
+
+
+def _california_timestamp(value: Any) -> str:
+    """Display event lifecycle timestamps in the operator's Pacific timezone."""
+    if value in (None, ""):
+        return "-"
+    timestamp = parse_timestamp(value, "timestamp", assume_utc=True)
+    local = timestamp.astimezone(CALIFORNIA_TIMEZONE)
+    return local.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + f" {local.tzname()}"
 
 
 def format_event_block(
@@ -42,6 +58,7 @@ def format_event_block(
     lines = [
         title,
         f"  event_id      : {_value(event.get('event_id'))}",
+        f"  run_id        : {_value(event.get('run_id'))}",
         f"  device        : {_value(event.get('device_id'))}",
         f"  pod           : {_value(event.get('sensor_name'))}",
         f"  vaccine       : {_value(event.get('vaccine_type'))}",
@@ -57,14 +74,14 @@ def format_event_block(
         f"  alert         : {_value(event.get('rule_alert'))}",
         f"  uncertainty   : {_value(event.get('uncertainty_status'))}",
         f"  boundary      : {_value(event.get('boundary_crossing'))}",
-        f"  event_time    : {_value(event.get('event_time'))}",
+        f"  event_time    : {_california_timestamp(event.get('event_time'))}",
     ]
     if topic is not None:
         lines.append(f"  topic         : {topic}")
     if received_at is not None:
-        lines.append(f"  received_at   : {_value(received_at)}")
+        lines.append(f"  received_at   : {_california_timestamp(received_at)}")
     if stored_at is not None:
-        lines.append(f"  stored_at     : {_value(stored_at)}")
+        lines.append(f"  stored_at     : {_california_timestamp(stored_at)}")
     return "\n".join(lines)
 
 

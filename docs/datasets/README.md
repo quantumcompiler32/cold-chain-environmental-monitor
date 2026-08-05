@@ -1,6 +1,5 @@
-# Datasets
+# Downloaded datasets
 
-CSV datasets are intentionally excluded from this GitHub handoff. The event
-generator uses built-in deterministic guidance unless an external CSV is
-supplied with `--csv-file`. Original project datasets remain outside the
-published package for local analysis.
+Downloaded or research datasets belong here. The reproducible CSV used by the
+optional model trainer and event generator is kept once, canonically, at
+`ai_worker/data/Test1_TempCO2O2.csv`; it is not duplicated here.
