@@ -42,8 +42,10 @@ class DashboardMakefileTests(unittest.TestCase):
         body = target_body(self.makefile, "watch-dashboard")
 
         self.assertIn("/ready", body)
-        self.assertIn("curl -N", body)
+        self.assertIn("curl -v -N", body)
         self.assertIn("/api/live/stream", body)
+        self.assertIn("tail -n 0 -f", body)
+        self.assertIn("DASHBOARD_LOG_FILE", body)
         self.assertNotIn("nohup $(PYTHON) -m backend.dashboard_bridge", body)
 
 

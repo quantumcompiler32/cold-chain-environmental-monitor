@@ -90,9 +90,9 @@ start-dashboard:
 		*) echo "Dashboard bridge failed to start. See $(DASHBOARD_LOG_FILE)."; rm -f "$$pid_file"; exit 1;; \
 	esac
 
-# Watch the live SSE stream from a separate terminal while the bridge remains
-# available for the frontend and other API clients. This target never starts
-# or stops the bridge and never kills a process by port number.
+# Watch the live SSE stream and bridge HTTP log from a separate terminal while
+# the bridge remains available for the frontend and other API clients. This
+# target never starts or stops the bridge and never kills a process by port.
 watch-dashboard:
 	@pid_file="$(DASHBOARD_PID_FILE)"; \
 	if [ ! -f "$$pid_file" ]; then echo "Dashboard bridge is not running (no PID file). Run make start-dashboard first."; exit 1; fi; \
@@ -102,8 +102,15 @@ watch-dashboard:
 	cmd=$$(ps -p "$$pid" -o command= 2>/dev/null || true); \
 	case "$$cmd" in *backend.dashboard_bridge*) ;; *) echo "Refusing to watch PID $$pid: it is not backend.dashboard_bridge."; exit 1;; esac; \
 	if ! curl -fsS --max-time 2 "$(DASHBOARD_URL)/ready" >/dev/null; then echo "Dashboard bridge PID $$pid exists but $(DASHBOARD_URL)/ready is unavailable."; exit 1; fi; \
-	echo "Watching $(DASHBOARD_URL)/api/live/stream (Ctrl-C stops the watcher only)."; \
-	exec curl -N "$(DASHBOARD_URL)/api/live/stream"
+	log_file="$(DASHBOARD_LOG_FILE)"; \
+	tail_pid=""; \
+	cleanup() { if [ -n "$$tail_pid" ]; then kill "$$tail_pid" 2>/dev/null || true; wait "$$tail_pid" 2>/dev/null || true; fi; }; \
+	trap cleanup EXIT; \
+	if [ -f "$$log_file" ]; then tail -n 0 -f "$$log_file" & tail_pid=$$!; echo "Bridge log: $$log_file"; else echo "Bridge log unavailable: $$log_file"; fi; \
+	echo "HTTP: GET $(DASHBOARD_URL)/ready"; \
+	echo "SSE: GET $(DASHBOARD_URL)/api/live/stream (Ctrl-C stops the watcher only)."; \
+	echo "Verbose curl output shows HTTP headers; bridge log lines show API calls and PostgreSQL reads."; \
+	curl -v -N "$(DASHBOARD_URL)/api/live/stream"
 
 # Stop only the bridge PID previously recorded by make start-dashboard. A live
 # PID is checked with ps before SIGTERM so an unrelated process is never killed.

@@ -162,9 +162,16 @@ the bridge available for the dashboard, run:
 make watch-dashboard
 ```
 
-This verifies the recorded bridge PID and its `/ready` endpoint, then runs
-`curl -N http://127.0.0.1:8787/api/live/stream`. Press `Ctrl-C` to stop only
-the watcher. It does not start the bridge or kill processes by port number.
+This verifies the recorded bridge PID and its `/ready` endpoint, then opens
+`curl -v -N http://127.0.0.1:8787/api/live/stream`. It also tails
+`.runtime/dashboard_bridge.log`, so the terminal shows HTTP headers, bridge API
+requests, PostgreSQL read records, SSE events, and keep-alive frames. Press
+`Ctrl-C` to stop only the watcher. It does not start the bridge or kill
+processes by port number.
+
+Keep-alive frames are expected when no new event has been committed. They mean
+the SSE HTTP connection is still open; the next committed event is delivered
+on that same connection.
 
 ## Generate events
 
