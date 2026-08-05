@@ -14,6 +14,8 @@ const {
   formatTemperature,
   formatLocalDateTime,
   formatAxisTimestamp,
+  buildPhaseTrail,
+  buildActiveAlerts,
   aggregateTemperatureSeries,
   movingAverage,
 } = require('../scripts/vaccine-data.js');
@@ -183,6 +185,35 @@ test('formats persisted timestamps in the selected local display timezone', () =
     timeZone: 'America/Los_Angeles',
     locale: 'en-US',
   }), 'Jul 15, 9:00:00 AM PDT');
+});
+
+test('builds an ordered phase trail for mixed sensor history', () => {
+  assert.deepEqual(buildPhaseTrail([
+    podEvent(1, '2026-07-15T10:00:00Z', -78.5, { scenario: 'mixed', scenario_phase: 'normal' }),
+    podEvent(2, '2026-07-15T10:01:00Z', -55, { scenario: 'mixed', scenario_phase: 'cooling_failure' }),
+    podEvent(3, '2026-07-15T10:02:00Z', -78.5, { scenario: 'mixed', scenario_phase: 'recovery' }),
+  ]), ['Normal', 'Cooling failure', 'Recovery']);
+});
+
+test('keeps the latest temperature separate from active alert history and exposes follow-up readings', () => {
+  const alerts = buildActiveAlerts([
+    podEvent(1, '2026-07-15T10:00:00Z', -78.5),
+    podEvent(2, '2026-07-15T10:01:00Z', -55, { status: 'TOO_WARM', severity: 'critical', rule_alert: 'VACCINE_SAFE_RANGE_VIOLATION' }),
+    podEvent(3, '2026-07-15T10:02:00Z', -62, { status: 'TOO_WARM', severity: 'critical', rule_alert: 'VACCINE_SAFE_RANGE_VIOLATION' }),
+  ]);
+
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].podId, 'Pod1');
+  assert.equal(alerts[0].severity, 'critical');
+  assert.equal(alerts[0].event.event_id, '2');
+  assert.deepEqual(alerts[0].subsequentReadings.map((event) => event.event_id), ['3']);
+});
+
+test('does not keep a resolved alert active after a newer safe reading', () => {
+  assert.deepEqual(buildActiveAlerts([
+    podEvent(1, '2026-07-15T10:00:00Z', -55, { status: 'TOO_WARM', severity: 'critical' }),
+    podEvent(2, '2026-07-15T10:01:00Z', -78.5, { status: 'STABLE', severity: 'info', rule_alert: '' }),
+  ]), []);
 });
 
 test('aggregates explicit hourly intervals and computes a three-point trailing average', () => {

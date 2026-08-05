@@ -143,13 +143,24 @@
     target.innerHTML = pods.length ? pods.map((event) => {
       const history = sorted(events.filter((historyEvent) => historyEvent.sensor_name === event.sensor_name));
       const summary = data.buildPodSummary(history, profile);
-      const status = summary.operationalStatus || event.operational_status || 'NORMAL';
+      const activeAlert = data.buildActiveAlerts(history, profile)[0];
+      const status = activeAlert?.severity === 'critical'
+        ? 'CRITICAL'
+        : activeAlert?.severity === 'warning'
+          ? 'WARNING'
+          : summary.operationalStatus || event.operational_status || 'NORMAL';
       const attentionClass = summary.trendKey === 'stable' ? '' : ' needs-attention';
-      return `<button class="pod-tile ${podClass(status)} ${trendClass(summary.trendKey)}${attentionClass}" type="button" data-pod="${esc(event.sensor_name)}" aria-label="${esc(event.sensor_name)} ${esc(operationalLabel(status))}: ${esc(summary.trendMessage)}">
+      const phaseTrail = data.buildPhaseTrail(history);
+      const phaseText = phaseTrail.length > 1 ? `Path: ${phaseTrail.join(' → ')}` : `Phase: ${phaseTrail[0] || '—'}`;
+      const timestamp = formatDateTime(event.event_time || event.timestamp);
+      return `<button class="pod-tile ${podClass(status)} ${trendClass(summary.trendKey)}${attentionClass}" type="button" data-pod="${esc(event.sensor_name)}" aria-label="${esc(event.sensor_name)}; Last Recorded Temperature ${esc(formatC(event.temperature_c))}; recorded ${esc(timestamp)}; ${esc(operationalLabel(status))}; ${esc(phaseText)}: ${esc(summary.trendMessage)}">
         <span class="pod-tile-head"><span class="pod-id">${esc(event.sensor_name)}</span><span class="pod-icon" aria-hidden="true">${OPERATIONAL_STATUS_ICONS[status] || '?'}</span></span>
+        <span class="pod-reading-label">Last Recorded Temperature</span>
         <span class="pod-temperature">${formatC(event.temperature_c)}</span>
+        <span class="pod-timestamp">${esc(timestamp)}</span>
         <span class="pod-state">${esc(operationalLabel(status))} · ${esc(event.occupancy_state || 'loaded')}</span>
-        <span class="pod-alert">${esc(summary.trendMessage)}</span>
+        <span class="pod-history" title="${esc(phaseText)}">${esc(phaseText)}</span>
+        <span class="pod-alert">${activeAlert ? `${esc(activeAlert.severity.toUpperCase())}: ${esc(activeAlert.currentMessage)}` : esc(summary.trendMessage)}</span>
         <span class="pod-hover-card" role="tooltip"><span class="pod-hover-title">${esc(summary.trendMessage)}</span>${renderPodMiniChart(summary)}<span class="pod-hover-meta">${Number.isFinite(summary.deltaC) ? `${summary.deltaC >= 0 ? '+' : ''}${summary.deltaC.toFixed(2)}°C over ${Math.round(summary.observedMinutes)} min` : 'No recent trend available'}</span><span class="pod-hover-action"><b>Next step</b> ${esc(summary.recommendation)}</span></span>
       </button>`;
     }).join('') : '<div class="detail-muted">No persisted Pods match this scope.</div>';
@@ -176,11 +187,15 @@
     });
   }
 
-  function openPodDetails(sensorName) {
+  function openPodDetails(sensorName, eventId = '') {
     const history = sorted(events.filter((event) => event.sensor_name === sensorName));
     const latest = history.at(-1);
     if (!latest) return;
     const summary = data.buildPodSummary(history, profile);
+    const activeAlert = data.buildActiveAlerts(history, profile)[0];
+    const focusEvent = eventId
+      ? history.find((event) => String(event.event_id) === String(eventId))
+      : activeAlert?.event;
     const detail = $('podDetailBackdrop');
     const status = summary.operationalStatus || latest.operational_status || 'NORMAL';
     $('podDetailTitle').textContent = latest.sensor_name;
@@ -189,24 +204,30 @@
     $('podDetailStatus').style.color = OPERATIONAL_STATUS_COLORS[status] || '#9ca3af';
     const deviation = Number.isFinite(Number(latest.temperature_c)) && Number.isFinite(Number(profile.targetC)) ? Number(latest.temperature_c) - Number(profile.targetC) : null;
     $('podDetailGrid').innerHTML = [
+      ['Pod ID', latest.sensor_name],
       ['Observed status', statusLabel(latest.status)],
       ['Rule status', operationalLabel(status)],
       ['Vaccine', latest.vaccine_label || latest.vaccine_type],
       ['Batch', latest.batch_id || 'None'],
       ['Occupancy', latest.occupancy_state || 'loaded'],
-      ['Current temperature', formatC(latest.temperature_c)],
-      ['Safe range', `${formatC(latest.storage_min_c)} to ${formatC(latest.storage_max_c)}`],
+      ['Last Recorded Temperature', formatC(latest.temperature_c)],
+      ['Reading timestamp', formatDateTime(latest.event_time)],
+      ['Safe temperature range', `${formatC(profile.lowerLimitC)} to ${formatC(profile.upperLimitC)}`],
       ['Deviation', deviation == null ? '—' : `${deviation >= 0 ? '+' : ''}${deviation.toFixed(2)}°C from target`],
       ['Scenario', latest.scenario],
       ['Phase', latest.scenario_phase || '—'],
       ['Trend', summary.trendMessage],
       ['Next step', summary.recommendation],
-      ['Last event', formatDateTime(latest.event_time)],
+      ['Last event ID', latest.event_id],
     ].map(([label, value]) => `<div><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join('');
     $('podDetailTrend').innerHTML = `${renderPodMiniChart(summary)}<div class="detail-muted">${esc(summary.trendMessage)} · ${esc(summary.recommendation)}</div>`;
-    $('podDetailAlerts').innerHTML = latest.rule_alert
-      ? `<div class="detail-alert">${esc(latest.rule_alert.replaceAll('_', ' '))}<br><small>Severity: ${esc(latest.severity || 'warning')}</small></div>`
+    $('podDetailAlerts').innerHTML = focusEvent
+      ? `<div class="detail-alert"><strong>${esc(activeAlert?.severity?.toUpperCase() || 'ALERT')}: ${esc(data.alertMessageForEvent(focusEvent, profile))}</strong><br><small>Trigger event ${esc(focusEvent.event_id)} · ${esc(formatDateTime(focusEvent.event_time))} · ${esc(formatC(focusEvent.temperature_c))}</small></div>`
       : '<div class="detail-ok">No active rule-based alerts.</div>';
+    const followups = focusEvent ? history.slice(history.findIndex((event) => String(event.event_id) === String(focusEvent.event_id)) + 1) : [];
+    $('podDetailFollowup').innerHTML = followups.length
+      ? `<div class="detail-reading-list">${followups.map((event) => `<div class="detail-reading"><span>${esc(formatDateTime(event.event_time))}</span><strong>${esc(formatC(event.temperature_c))}</strong><small>${esc(statusLabel(event.status))} · ${esc(event.event_id)}</small></div>`).join('')}</div>`
+      : '<div class="detail-muted">No readings followed this alert in the selected scope.</div>';
     detail.hidden = false;
   }
 
@@ -342,15 +363,31 @@
 
   function renderAttention(summaries) {
     const attention = $('attentionBanner');
-    const outOfRange = summaries.filter((sensor) => sensor.status === 'TOO_COLD' || sensor.status === 'TOO_WARM');
-    const names = outOfRange.slice(0, 3).map((sensor) => sensor.sensorName).join(', ');
-    attention.classList.toggle('safe', outOfRange.length === 0);
-    $('attentionTitle').textContent = outOfRange.length
-      ? outOfRange.length + ' sensor' + (outOfRange.length === 1 ? '' : 's') + ' outside the stored profile range'
+    const activeAlerts = data.buildActiveAlerts(events, profile);
+    const names = activeAlerts.slice(0, 3).map((alert) => alert.podId).join(', ');
+    attention.classList.toggle('safe', activeAlerts.length === 0);
+    $('attentionTitle').textContent = activeAlerts.length
+      ? activeAlerts.length + ' active alert' + (activeAlerts.length === 1 ? '' : 's')
       : 'All stored sensors are in range';
-    $('attentionText').textContent = outOfRange.length
-      ? names + (outOfRange.length > 3 ? ' and more' : '') + ' require review.'
+    $('attentionText').textContent = activeAlerts.length
+      ? names + (activeAlerts.length > 3 ? ' and more' : '') + ' require review. Safe range: ' + rangeText() + '.'
       : events.length ? 'The latest persisted readings are within their configured storage ranges.' : currentEndpoint.startsWith('/api/live') ? 'Waiting for the next incoming event.' : 'No persisted readings match the selected filters.';
+  }
+
+  function renderActiveAlerts() {
+    const target = $('activeAlerts');
+    const count = $('activeAlertCount');
+    if (!target || !count) return;
+    const activeAlerts = data.buildActiveAlerts(events, profile);
+    count.textContent = `${activeAlerts.length} active`;
+    target.innerHTML = activeAlerts.length
+      ? activeAlerts.map((alert) => `<button class="active-alert ${alert.severity}" type="button" data-alert-pod="${esc(alert.podId)}" data-alert-event="${esc(alert.event.event_id)}">
+          <span class="active-alert-mark" aria-hidden="true">!</span>
+          <span class="active-alert-copy"><strong>${esc(alert.podId)} · ${esc(alert.severity.toUpperCase())}</strong><span>${esc(alert.message)} · ${esc(formatC(alert.event.temperature_c))}</span><small>Current: ${esc(alert.currentMessage)} · ${esc(formatC(alert.currentEvent.temperature_c))} · Trigger: ${esc(formatDateTime(alert.event.event_time))} · Event ${esc(alert.event.event_id)} · ${alert.subsequentReadings.length} subsequent reading${alert.subsequentReadings.length === 1 ? '' : 's'}</small></span>
+          <span class="active-alert-action">Inspect ›</span>
+        </button>`).join('')
+      : '<div class="detail-ok">No active alerts in the selected scope.</div>';
+    target.querySelectorAll('[data-alert-pod]').forEach((button) => button.addEventListener('click', () => openPodDetails(button.dataset.alertPod, button.dataset.alertEvent)));
   }
 
   function renderPicker(availableSensors) {
@@ -541,8 +578,10 @@
   function renderTable(summaries) {
     $('sensorTable').innerHTML = summaries.map((sensor) => {
       const scenario = sensor.latestPhase ? `${sensor.latestScenario} · ${sensor.latestPhase}` : sensor.latestScenario;
-      const condition = statusLabel(sensor.status);
-      return '<tr><td class="sensor-name">' + esc(sensor.sensorName) + '</td><td class="temp">' + formatC(sensor.latestTemperatureC) + '</td><td class="temp">' + formatC(sensor.averageTemperatureC) + '</td><td><span role="status" aria-label="Condition: ' + esc(condition) + '" class="condition ' + statusClass(sensor.status) + '">' + condition + '</span></td><td class="muted-cell">' + esc(scenario) + '</td><td class="muted-cell">' + sensor.readingCount + '</td><td><button class="row-action" type="button" data-focus-sensor="' + esc(sensor.sensorName) + '">View trend</button></td></tr>';
+      const activeAlert = data.buildActiveAlerts(events.filter((event) => event.sensor_name === sensor.sensorName), profile)[0];
+      const condition = activeAlert ? activeAlert.severity[0].toUpperCase() + activeAlert.severity.slice(1) : statusLabel(sensor.status);
+      const conditionKey = activeAlert ? activeAlert.severity : sensor.status;
+      return '<tr><td class="sensor-name">' + esc(sensor.sensorName) + '</td><td class="temp">' + formatC(sensor.latestTemperatureC) + '</td><td class="muted-cell">' + esc(formatDateTime(sensor.latestTimestamp)) + '</td><td class="temp">' + formatC(sensor.averageTemperatureC) + '</td><td><span role="status" aria-label="Condition: ' + esc(condition) + '" class="condition ' + statusClass(conditionKey) + '">' + condition + '</span></td><td class="muted-cell">' + esc(scenario) + '</td><td class="muted-cell">' + sensor.readingCount + '</td><td><button class="row-action" type="button" data-focus-sensor="' + esc(sensor.sensorName) + '">View trend</button></td></tr>';
     }).join('');
     $('sensorTable').querySelectorAll('[data-focus-sensor]').forEach((button) => button.addEventListener('click', () => {
       selectedSensors = [button.dataset.focusSensor, ...selectedSensors.filter((sensor) => sensor !== button.dataset.focusSensor)].slice(0, 6);
@@ -560,6 +599,7 @@
     renderPodGrid();
     renderKpis(summaries);
     renderAttention(summaries);
+    renderActiveAlerts();
     renderStatusBars(summaries);
     renderCharts();
     renderTable(summaries);

@@ -594,6 +594,58 @@
     }[value] || String(value || 'Unknown').replaceAll('_', ' ');
   }
 
+  function buildPhaseTrail(events) {
+    const trail = [];
+    events.forEach((event) => {
+      const key = scenarioDisplayKey(event);
+      if (key && trail.at(-1) !== key) trail.push(key);
+    });
+    return trail.map(scenarioDisplayLabel);
+  }
+
+  function alertSeverityForEvent(event, profile = PROFILE) {
+    const temperatureStatus = classifyTemperature(event.temperature_c, profile);
+    if (temperatureStatus === 'TOO_COLD' || temperatureStatus === 'TOO_WARM') return 'critical';
+    if (String(event.rule_alert || '') === 'TEMPERATURE_RECOVERY' || event.operational_status === 'RECOVERY') return null;
+    const severity = String(event.severity || '').toLowerCase();
+    if (severity === 'critical') return 'critical';
+    if (severity === 'warning' || event.boundary_crossing || event.rule_alert) return 'warning';
+    return null;
+  }
+
+  function alertMessageForEvent(event, profile = PROFILE) {
+    const temperatureStatus = classifyTemperature(event.temperature_c, profile);
+    if (temperatureStatus === 'TOO_COLD') return 'Temperature is below the safe range';
+    if (temperatureStatus === 'TOO_WARM') return 'Temperature is above the safe range';
+    if (event.rule_alert) return String(event.rule_alert).replaceAll('_', ' ');
+    return 'Review the latest Pod reading';
+  }
+
+  function buildActiveAlerts(events, profile = PROFILE) {
+    const groups = new Map();
+    sortedEvents(events).forEach((event) => {
+      if (!groups.has(event.sensor_name)) groups.set(event.sensor_name, []);
+      groups.get(event.sensor_name).push(event);
+    });
+
+    return Array.from(groups.entries()).flatMap(([podId, history]) => {
+      const latest = history.at(-1);
+      if (!latest || !alertSeverityForEvent(latest, profile)) return [];
+      let triggerIndex = history.length - 1;
+      while (triggerIndex > 0 && alertSeverityForEvent(history[triggerIndex - 1], profile)) triggerIndex -= 1;
+      const triggerEvent = history[triggerIndex];
+      return [{
+        podId,
+        severity: alertSeverityForEvent(latest, profile),
+        message: alertMessageForEvent(triggerEvent, profile),
+        currentMessage: alertMessageForEvent(latest, profile),
+        currentEvent: latest,
+        event: triggerEvent,
+        subsequentReadings: history.slice(triggerIndex + 1),
+      }];
+    }).sort((left, right) => timestampValue(right.event.timestamp) - timestampValue(left.event.timestamp));
+  }
+
   function buildScenarioOutcomeSeries(events) {
     const groups = new Map();
     events.forEach((event) => {
@@ -679,6 +731,10 @@
     buildScenarioCounts,
     scenarioDisplayKey,
     scenarioDisplayLabel,
+    buildPhaseTrail,
+    alertSeverityForEvent,
+    alertMessageForEvent,
+    buildActiveAlerts,
     buildScenarioOutcomeSeries,
     buildSensorSpreadSeries,
     buildUncertaintySeries,

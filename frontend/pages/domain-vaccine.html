@@ -6,8 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vaccine Cold Chain</title>
   <link rel="stylesheet" href="../styles/shared.css">
-  <link rel="stylesheet" href="../styles/vaccine.css?v=analytics-1">
-  <link rel="stylesheet" href="../styles/vaccine-monitoring.css?v=monitoring-1">
+  <link rel="stylesheet" href="../styles/vaccine.css?v=alerts-drilldown-1">
+  <link rel="stylesheet" href="../styles/vaccine-monitoring.css?v=alerts-drilldown-1">
   <link rel="stylesheet" href="../styles/phase1-vaccine-skin.css?v=phase1-skin-1">
 </head>
 <body data-vaccine-view="analytics">
@@ -34,10 +34,10 @@
         <div class="filter-row preset-row" role="group" aria-label="Time presets">
           <button class="filter-preset active" type="button" data-range="live">Live</button>
           <button class="filter-preset" type="button" data-range="6h">Last 6 hours</button>
-          <button class="filter-preset" type="button" data-range="daily">Daily</button>
-          <button class="filter-preset" type="button" data-range="weekly">Weekly</button>
-          <button class="filter-preset" type="button" data-range="monthly">Monthly</button>
-          <button class="filter-preset" type="button" data-range="custom">Custom dates</button>
+          <button class="filter-preset" type="button" data-range="daily">Day</button>
+          <button class="filter-preset" type="button" data-range="weekly">Week</button>
+          <button class="filter-preset" type="button" data-range="monthly">Month</button>
+          <button class="filter-preset" type="button" data-range="custom">Custom range</button>
         </div>
         <div class="filter-row">
           <label for="filterStart">Start <input id="filterStart" type="datetime-local"></label>
@@ -67,13 +67,18 @@
       <section class="profile-strip" aria-label="Active vaccine profile">
         <div><span class="profile-label">Active profile</span><strong id="profileName">Pfizer ultralow</strong></div>
         <div><span class="profile-label">Target</span><strong id="profileTarget">−78.5°C</strong></div>
-        <div><span class="profile-label">Acceptable range</span><strong id="profileRange">−80°C to −60°C</strong></div>
+        <div><span class="profile-label">Safe temperature range</span><strong id="profileRange">−80°C to −60°C</strong></div>
         <div class="profile-note"><span id="profileGuidance">Statuses are derived from each reading.</span> <a id="profileSourceLink" href="#" target="_blank" rel="noreferrer">Storage guidance</a></div>
       </section>
 
       <section class="attention-banner" id="attentionBanner" aria-live="polite">
         <div class="attention-icon">!</div>
         <div class="attention-copy"><strong id="attentionTitle">Loading sensor health…</strong><span id="attentionText">Preparing the latest package readings.</span></div>
+      </section>
+
+      <section class="card active-alerts-card" aria-label="Active temperature alerts">
+        <div class="card-heading"><div><div class="card-title">Active alerts</div><div class="card-sub">The latest warning or critical reading for each affected Pod. Select an alert to inspect its exact event and readings afterward.</div></div><strong class="active-alert-count" id="activeAlertCount">—</strong></div>
+        <div class="active-alert-list" id="activeAlerts" aria-live="polite"></div>
       </section>
 
       <section class="kpi-row" aria-label="Current summary">
@@ -147,7 +152,7 @@
 
       <section class="card sensor-card" id="sensorTableCard">
         <div class="card-heading"><div><div class="card-title">All package sensors</div><div class="card-sub">Latest is the newest recorded reading. Period average is the arithmetic mean of readings in the selected scope.</div></div><span class="table-hint">Pod1–Pod20</span></div>
-        <div class="table-wrap"><table class="unit-table"><thead><tr><th>Sensor</th><th>Latest</th><th>Period average</th><th>Condition</th><th>Scenario</th><th>Readings</th><th></th></tr></thead><tbody id="sensorTable"></tbody></table></div>
+        <div class="table-wrap"><table class="unit-table"><thead><tr><th>Pod ID</th><th>Last Recorded Temperature</th><th>Reading timestamp</th><th>Period average</th><th>Condition</th><th>Scenario</th><th>Readings</th><th></th></tr></thead><tbody id="sensorTable"></tbody></table></div>
       </section>
 
     </div>
@@ -162,14 +167,15 @@
       <div class="detail-grid" id="podDetailGrid"></div>
       <div class="detail-section"><strong>Temperature trend</strong><div class="detail-trend" id="podDetailTrend"></div></div>
       <div class="detail-section"><strong>Alerts</strong><div id="podDetailAlerts"></div></div>
+      <div class="detail-section"><strong>Subsequent readings</strong><div id="podDetailFollowup"></div></div>
       <div class="detail-section"><strong>ML inference</strong><div class="detail-muted">Use the Inference tab for one-event advisory analysis.</div></div>
     </section>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="../scripts/vaccine-navigation.js?v=three-tabs-1"></script>
-  <script src="../scripts/vaccine-data.js?v=local-time-1"></script>
+  <script src="../scripts/vaccine-data.js?v=alerts-drilldown-1"></script>
   <script src="../scripts/vaccine-bridge.js?v=workstream-b-1"></script>
-  <script src="../scripts/vaccine.js?v=local-time-1"></script>
+  <script src="../scripts/vaccine.js?v=alerts-drilldown-1"></script>
 </body>
 </html>

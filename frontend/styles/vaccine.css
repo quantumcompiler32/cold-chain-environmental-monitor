@@ -115,7 +115,7 @@ button { cursor: pointer; }
 .unit-table .temp { color: var(--text); font-variant-numeric: tabular-nums; }
 .unit-table .muted-cell { color: var(--muted); }
 .condition { border-radius: 999px; display: inline-block; font-size: 10px; padding: 3px 7px; }
-.condition.stable, .condition.acceptable { background: rgba(16,185,129,.13); color: #6ee7b7; }.condition.too-cold { background: rgba(96,165,250,.14); color: #93c5fd; }.condition.too-warm { background: rgba(239,68,68,.14); color: #fca5a5; }.condition.unknown { background: rgba(107,114,128,.14); color: var(--muted); }
+.condition.stable, .condition.acceptable { background: rgba(16,185,129,.13); color: #6ee7b7; }.condition.warning { background: rgba(245,158,11,.16); color: #fcd34d; }.condition.critical { background: rgba(239,68,68,.16); color: #fca5a5; }.condition.too-cold { background: rgba(96,165,250,.14); color: #93c5fd; }.condition.too-warm { background: rgba(239,68,68,.14); color: #fca5a5; }.condition.unknown { background: rgba(107,114,128,.14); color: var(--muted); }
 .row-action { background: transparent; border: 0; color: #c4b5fd; font-size: 10px; padding: 4px 0; }.row-action:hover { color: #fff; text-decoration: underline; }
 .provenance-card { align-items: center; display: grid; gap: 16px; grid-template-columns: 1fr minmax(160px, 210px) minmax(120px, 1fr); margin-top: 12px; }
 .provenance-value { color: #c4b5fd; font-size: 18px; font-variant-numeric: tabular-nums; text-align: right; }.provenance-track { background: rgba(255,255,255,.07); border-radius: 4px; height: 7px; overflow: hidden; }.provenance-track div { background: #8b5cf6; border-radius: 4px; height: 100%; width: 65%; }
