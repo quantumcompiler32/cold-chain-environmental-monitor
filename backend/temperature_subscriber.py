@@ -117,13 +117,13 @@ def resolve_ingestion_timestamps(
     return replay_clock, now_utc(replay_clock)
 
 
-def validate_event(data: dict[str, Any]) -> dict[str, Any]:
+def validate_event(data: dict[str, Any], *, now: datetime | None = None) -> dict[str, Any]:
     """Validate and normalize the shared event contract."""
     if not isinstance(data, dict):
         raise ValueError("The JSON payload must be an object.")
 
     normalized = dict(data)
-    replay_time = simulated_timestamp(normalized)
+    replay_time = simulated_timestamp(normalized) or now
     if "event_time" not in normalized and "timestamp" in normalized:
         normalized["event_time"] = normalized["timestamp"]
     # Historical CSV timestamps are not part of the live event contract.
@@ -205,8 +205,11 @@ def persist_event(
     """Write both intentional projections in one transaction using event_id."""
     replay_time = simulated_timestamp(event)
     replay_clock = clock or (lambda: replay_time) if replay_time is not None else clock
-    normalized = validate_event(event)
     received = received_at or now_utc(replay_clock)
+    # The MQTT callback may pass an already-normalized event after removing
+    # the internal replay marker. Reuse the resolved receipt clock here so the
+    # second validation pass cannot turn a July replay into EVENT_STALE.
+    normalized = validate_event(event, now=received)
     stored = now_utc(replay_clock)
     generic_sql = """
         INSERT INTO telemetry_logs

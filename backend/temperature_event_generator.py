@@ -18,6 +18,7 @@ import argparse
 import json
 # json turns each simulated reading into a message MQTT can carry.
 import os
+import re
 import sys
 # sys lets us print user-friendly failures to stderr.
 import time
@@ -63,6 +64,9 @@ STABLE_TOLERANCE_C = 1.0
 OUTLIER_OFFSET_C = 1.0
 FAILURE_OFFSET_C = 5.0
 SCENARIOS = ("normal", "warning", "recovery", "mixed", "outlier")
+# A multi-Pod mixed run uses this deterministic rotation so the dashboard
+# shows a useful operating spread instead of every Pod ending in failure.
+MIXED_POD_VARIANTS = ("normal", "recovery", "normal", "warning", "critical", "empty", "energy_waste")
 
 
 @dataclass(frozen=True)
@@ -378,12 +382,43 @@ def safe_baseline_temperature(source_temperature_c: float, profile: VaccineProfi
     return min(max(adapted_temperature, profile.min_c), profile.max_c)
 
 
+def mixed_normal_temperature(source_temperature_c: float, profile: VaccineProfile) -> float:
+    """Keep a mixed-run normal Pod clearly inside the safe range.
+
+    The source fixture contains broad excursions, so clamping only to the
+    range endpoints can create a boundary warning. Mixed normal roles should
+    remain visually and operationally normal; warning roles provide the
+    boundary example explicitly.
+    """
+    if profile.min_c is None or profile.max_c is None:
+        raise ValueError("Temperature bounds are required for a mixed normal role.")
+    adapted_temperature = adapt_source_temperature(source_temperature_c, profile)
+    margin = min(1.5, (profile.max_c - profile.min_c) / 4)
+    return min(max(adapted_temperature, profile.min_c + margin), profile.max_c - margin)
+
+
+def mixed_pod_variant(sensor_name: str, sensor_index: int = 0, sensor_count: int = 1) -> str | None:
+    """Return a deterministic mixed-run role for a selected Pod.
+
+    A single-Pod mixed run keeps the original normal -> failure -> recovery
+    timeline. Multi-Pod runs rotate roles by numeric Pod ID (or selection
+    order for non-Pod names) so the final grid contains normal, recovery,
+    warning, critical, empty, and energy-waste examples without Offline.
+    """
+    if sensor_count <= 1:
+        return None
+    match = re.fullmatch(r"Pod(\d+)", str(sensor_name), flags=re.IGNORECASE)
+    role_index = int(match.group(1)) - 1 if match else sensor_index
+    return MIXED_POD_VARIANTS[role_index % len(MIXED_POD_VARIANTS)]
+
+
 def transform_temperature(
     source_temperature_c: float,
     profile: VaccineProfile,
     scenario: str,
     event_number: int,
     total_events: int,
+    mixed_variant: str | None = None,
 ) -> float:
     """Apply deterministic scenario behavior to one source reading.
 
@@ -428,6 +463,16 @@ def transform_temperature(
     if scenario == "mixed":
         if total_events <= 0:
             raise ValueError("Mixed requires a positive total event count.")
+        if mixed_variant in {"normal", "empty", "energy_waste"}:
+            if mixed_variant == "normal":
+                return mixed_normal_temperature(source_temperature_c, profile)
+            return safe_baseline_temperature(source_temperature_c, profile)
+        if mixed_variant == "warning":
+            return transform_temperature(source_temperature_c, profile, "warning", event_number, total_events)
+        if mixed_variant == "critical":
+            return transform_temperature(source_temperature_c, profile, "cooling_failure", event_number, total_events)
+        if mixed_variant == "recovery":
+            return transform_temperature(source_temperature_c, profile, "recovery", event_number, total_events)
         normal_end = max(1, total_events // 3)
         failure_end = max(normal_end + 1, (total_events * 2) // 3)
         if event_number <= normal_end:
@@ -496,6 +541,7 @@ def make_event(
     occupancy_state: str = "loaded",
     batch_id: str | None = None,
     cooling_enabled: bool = True,
+    mixed_variant: str | None = None,
 ) -> dict[str, Any]:
     """Build one portable JSON event representing a newly generated reading."""
     # The CSV supplies temperature shape only; this event is created now unless
@@ -507,6 +553,7 @@ def make_event(
         scenario,
         event_number,
         total_events,
+        mixed_variant=mixed_variant,
     )
     # Build the common envelope shared by the generator, subscriber, and UI.
     generated_event_time = now_utc(lambda: event_time) if event_time is not None else now_utc()
@@ -531,13 +578,15 @@ def make_event(
         # persisted timestamps, and removes it before storing the JSON payload.
         event["_simulated_at"] = format_timestamp(generated_event_time)
     if scenario == "mixed":
-        normal_end = max(1, total_events // 3)
-        failure_end = max(normal_end + 1, (total_events * 2) // 3)
-        event["scenario_phase"] = (
-            "normal" if event_number <= normal_end
-            else "cooling_failure" if event_number <= failure_end
-            else "recovery"
-        )
+        if mixed_variant in {"normal", "recovery", "warning", "critical", "empty", "energy_waste"}:
+            event["scenario_phase"] = mixed_variant
+        else:
+            normal_end = max(1, total_events // 3)
+            failure_end = max(normal_end + 1, (total_events * 2) // 3)
+            event["scenario_phase"] = (
+                "normal" if event_number <= normal_end
+                else "cooling_failure" if event_number <= failure_end else "recovery"
+            )
     # Add the possible sensor range without changing the measured temperature.
     event.update(
         classify_uncertainty(
@@ -627,8 +676,10 @@ def main() -> int:
         while args.count == 0 or count < args.count:
             # Each loop is one round: publish one event for every selected Pod
             # before waiting for the requested interval.
-            for run in sensor_runs:
+            for sensor_index, run in enumerate(sensor_runs):
                 sensor_name = run["sensor_name"]
+                mixed_variant = mixed_pod_variant(sensor_name, sensor_index, len(sensor_runs)) if args.scenario == "mixed" else None
+                mixed_empty = mixed_variant in {"empty", "energy_waste"}
                 event = make_event(
                     sensor_name,
                     run["readings"].iloc[run["index"]],
@@ -643,9 +694,10 @@ def main() -> int:
                         if args.start_time is not None else None
                     ),
                     backdate_ingestion=args.start_time is not None,
-                    occupancy_state=args.occupancy_state,
-                    batch_id=batch_ids[sensor_name],
-                    cooling_enabled=args.cooling_enabled,
+                    occupancy_state="empty" if mixed_empty else args.occupancy_state,
+                    batch_id=None if mixed_empty else batch_ids[sensor_name],
+                    cooling_enabled=(mixed_variant == "energy_waste") if mixed_empty else args.cooling_enabled,
+                    mixed_variant=mixed_variant,
                 )
                 # Keep the requested scenario separate from the optional phase.
                 # This prevents a mixed run from being reported as if its phases

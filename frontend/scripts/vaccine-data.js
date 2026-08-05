@@ -590,6 +590,10 @@
       normal: 'Normal',
       recovery: 'Recovery',
       cooling_failure: 'Cooling failure',
+      warning: 'Warning',
+      critical: 'Critical',
+      empty: 'Empty',
+      energy_waste: 'Energy waste',
       mixed: 'Mixed',
     }[value] || String(value || 'Unknown').replaceAll('_', ' ');
   }

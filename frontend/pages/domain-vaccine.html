@@ -4,10 +4,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <title>Vaccine Cold Chain</title>
   <link rel="stylesheet" href="../styles/shared.css">
   <link rel="stylesheet" href="../styles/vaccine.css?v=alerts-drilldown-1">
-  <link rel="stylesheet" href="../styles/vaccine-monitoring.css?v=alerts-drilldown-1">
+  <link rel="stylesheet" href="../styles/vaccine-monitoring.css?v=mixed-grid-1">
   <link rel="stylesheet" href="../styles/phase1-vaccine-skin.css?v=phase1-skin-1">
 </head>
 <body data-vaccine-view="analytics">
@@ -33,6 +34,7 @@
         </div>
         <div class="filter-row preset-row" role="group" aria-label="Time presets">
           <button class="filter-preset active" type="button" data-range="live">Live</button>
+          <button class="filter-preset" type="button" data-range="recent">Recent</button>
           <button class="filter-preset" type="button" data-range="6h">Last 6 hours</button>
           <button class="filter-preset" type="button" data-range="daily">Day</button>
           <button class="filter-preset" type="button" data-range="weekly">Week</button>
@@ -58,7 +60,7 @@
         <div class="card-heading">
           <div><div class="card-title">Pod status grid</div><div class="card-sub">Pods stay in numeric order. Hover for the temperature trend and next step; click for full details.</div></div>
           <div class="status-legend" aria-label="Pod status legend">
-            <span><i class="legend-swatch normal"></i>Normal</span><span><i class="legend-swatch warning"></i>Warning</span><span><i class="legend-swatch critical"></i>Critical</span><span><i class="legend-swatch offline"></i>Offline</span><span><i class="legend-swatch empty"></i>Empty</span><span><i class="legend-swatch energy-waste"></i>Energy waste</span>
+            <span><i class="legend-swatch normal"></i>Normal</span><span><i class="legend-swatch recovery"></i>Recovery</span><span><i class="legend-swatch warning"></i>Warning</span><span><i class="legend-swatch critical"></i>Critical</span><span><i class="legend-swatch empty"></i>Empty</span><span><i class="legend-swatch energy-waste"></i>Energy waste</span>
           </div>
         </div>
         <div class="pod-grid" id="podGrid"></div>
@@ -174,8 +176,8 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="../scripts/vaccine-navigation.js?v=three-tabs-1"></script>
-  <script src="../scripts/vaccine-data.js?v=alerts-drilldown-1"></script>
-  <script src="../scripts/vaccine-bridge.js?v=workstream-b-1"></script>
-  <script src="../scripts/vaccine.js?v=alerts-drilldown-1"></script>
+  <script src="../scripts/vaccine-data.js?v=mixed-grid-1"></script>
+  <script src="../scripts/vaccine-bridge.js?v=recent-live-1"></script>
+  <script src="../scripts/vaccine.js?v=mixed-grid-3"></script>
 </body>
 </html>

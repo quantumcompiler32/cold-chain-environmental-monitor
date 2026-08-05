@@ -4,7 +4,7 @@ import json
 import unittest
 from datetime import datetime, timezone
 
-from backend.temperature_subscriber import persist_event, process_message, resolve_ingestion_timestamps
+from backend.temperature_subscriber import persist_event, process_message, resolve_ingestion_timestamps, validate_event
 
 
 EVENT = {
@@ -126,6 +126,23 @@ class AtomicDualWriteTests(unittest.TestCase):
         expected = datetime(2026, 7, 15, 16, 0, 0, tzinfo=timezone.utc)
         self.assertEqual(received_at, expected)
         self.assertEqual(clock(), expected)
+
+    def test_persisting_a_prevalidated_replay_event_keeps_it_from_becoming_stale(self):
+        cursor = FakeCursor()
+        connection = FakeConnection(cursor)
+        replay_time = datetime(2026, 7, 15, 16, 0, 0, tzinfo=timezone.utc)
+        prevalidated = validate_event({**EVENT, "_simulated_at": replay_time.isoformat()})
+
+        persist_event(
+            prevalidated,
+            connection_factory=lambda: connection,
+            received_at=replay_time,
+            clock=lambda: replay_time,
+        )
+
+        vaccine_params = cursor.statements[1][1]
+        self.assertNotEqual(vaccine_params[10], "STALE")
+        self.assertNotEqual(vaccine_params[12], "EVENT_STALE")
 
     def test_success_writes_generic_and_vaccine_rows_in_one_transaction(self):
         cursor = FakeCursor()

@@ -14,6 +14,8 @@ class StubReader:
         self.ready = ready
         self.check_calls = 0
         self.fetch_events_calls = 0
+        self.fetch_latest_events_calls = 0
+        self.fetch_recent_events_calls = 0
 
     def check(self):
         self.check_calls += 1
@@ -23,6 +25,14 @@ class StubReader:
     def fetch_events(self, *_args, **_kwargs):
         self.fetch_events_calls += 1
         raise AssertionError("live endpoint must not read historical rows")
+
+    def fetch_latest_events(self, *_args, **_kwargs):
+        self.fetch_latest_events_calls += 1
+        return []
+
+    def fetch_recent_events(self, *_args, **_kwargs):
+        self.fetch_recent_events_calls += 1
+        return []
 
 
 class DashboardHttpIntegrationTests(unittest.TestCase):
@@ -80,6 +90,7 @@ class DashboardHttpIntegrationTests(unittest.TestCase):
         response, payload = self.request("GET", "/")
         self.assertEqual(response.status, 200)
         self.assertIn("/api/events", payload["routes"])
+        self.assertIn("/api/recent", payload["routes"])
 
         response, payload = self.request("GET", "/pages/domain-vaccine.html")
         self.assertEqual(response.status, 404)
@@ -94,6 +105,17 @@ class DashboardHttpIntegrationTests(unittest.TestCase):
         self.assertEqual(payload["events"], [])
         self.assertEqual(payload["count"], 0)
         self.assertTrue(payload["live_monitoring"])
+        self.assertEqual(self.reader.fetch_events_calls, 0)
+
+    def test_recent_endpoint_returns_latest_persisted_view(self):
+        response, payload = self.request("GET", "/api/recent")
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload["events"], [])
+        self.assertEqual(payload["count"], 0)
+        self.assertTrue(payload["recent"])
+        self.assertEqual(self.reader.fetch_recent_events_calls, 1)
+        self.assertEqual(self.reader.fetch_latest_events_calls, 0)
         self.assertEqual(self.reader.fetch_events_calls, 0)
 
     def test_mutation_methods_are_rejected_by_read_only_bridge(self):

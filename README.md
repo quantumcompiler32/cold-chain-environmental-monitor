@@ -130,6 +130,10 @@ root with the virtual environment active.
    make start-dashboard
    ```
 
+   This starts the API/SSE server on port `8787` in the background and records
+   its PID in `.runtime/dashboard_bridge.pid`. Its output is written to
+   `.runtime/dashboard_bridge.log`.
+
 4. Start the static frontend server:
 
    ```bash
@@ -150,6 +154,17 @@ root with the virtual environment active.
 Open `http://127.0.0.1:8766/` or
 `http://127.0.0.1:8766/pages/domain-vaccine.html`. The bridge API is at
 `http://127.0.0.1:8787/`.
+
+To watch the forward-only Live stream in a separate terminal, while keeping
+the bridge available for the dashboard, run:
+
+```bash
+make watch-dashboard
+```
+
+This verifies the recorded bridge PID and its `/ready` endpoint, then runs
+`curl -N http://127.0.0.1:8787/api/live/stream`. Press `Ctrl-C` to stop only
+the watcher. It does not start the bridge or kill processes by port number.
 
 ## Generate events
 
@@ -182,8 +197,15 @@ make run-scenario SENSORS=Pod1 SCENARIO=warning COUNT=30 INTERVAL_MS=100 SEED=42
 make run-scenario SENSORS=Pod1 SCENARIO=outlier COUNT=30 INTERVAL_MS=100
 make run-scenario SENSORS=Pod1 SCENARIO=recovery COUNT=30 INTERVAL_MS=100
 make run-scenario SENSORS=Pod1 SCENARIO=mixed COUNT=30 INTERVAL_MS=100 SEED=42
+make run-scenario SENSORS=ALL SCENARIO=mixed COUNT=100 INTERVAL_MS=100 SEED=42
 make demo-all COUNT=10 INTERVAL_MS=200 OUTPUT_MODE=summary
 ```
+
+When `SCENARIO=mixed` runs across multiple Pods, the generator assigns a
+deterministic role by Pod: Normal, Recovery, Normal, Warning, Critical, Empty,
+then Energy waste, repeating as needed. It does not assign Offline in this
+mode, so the Pod grid shows a useful variety while the same seed and replay
+time remain reproducible.
 
 The listener is the normal database writer. Direct generator database writes
 are not part of the normal startup order; `--write-db` belongs to the listener.
@@ -240,9 +262,18 @@ ignored evidence under `test-reports/`.
 
 ## Stop and restart
 
-Stop the four application terminals with `Ctrl-C` in this order: generator,
-frontend server, dashboard bridge, then listener. Stop infrastructure only if
-you no longer need it:
+Stop the generator and static frontend with `Ctrl-C`. Stop the separate SSE
+watcher with `Ctrl-C`, then stop the dashboard bridge through its recorded PID:
+
+```bash
+make stop-dashboard
+```
+
+`make stop-dashboard` verifies that the PID belongs to
+`backend.dashboard_bridge`, sends `SIGTERM`, removes the PID file, and reports
+if the bridge is already stopped. It never scans or kills every process using
+port `8787`. Stop the listener afterward. Stop infrastructure only if you no
+longer need it:
 
 ```bash
 make stop-demo

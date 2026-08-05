@@ -94,7 +94,10 @@
       }
     };
     poll();
-    const timer = setInterval(poll, path === '/api/live' ? 1000 : 5000);
+    const timer = setInterval(
+      poll,
+      path === '/api/live' ? 250 : path === '/api/recent' ? 1500 : 5000,
+    );
     return () => {
       active = false;
       clearInterval(timer);

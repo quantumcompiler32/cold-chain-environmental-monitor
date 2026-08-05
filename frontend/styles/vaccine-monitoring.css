@@ -19,7 +19,7 @@
 .status-legend { align-items: center; display: flex; flex-wrap: wrap; gap: 8px 12px; justify-content: flex-end; }
 .status-legend span { align-items: center; color: var(--muted); display: inline-flex; font-size: 10px; gap: 5px; }
 .legend-swatch { background: #10b981; border-radius: 3px; display: inline-block; height: 9px; width: 9px; }
-.legend-swatch.warning { background: #f59e0b; }.legend-swatch.critical { background: #ef4444; }.legend-swatch.offline { background: #6b7280; }.legend-swatch.empty { background: #60a5fa; }.legend-swatch.energy-waste { background: #ec4899; }
+.legend-swatch.recovery { background: #3b82f6; }.legend-swatch.warning { background: #f59e0b; }.legend-swatch.critical { background: #ef4444; }.legend-swatch.empty { background: #60a5fa; }.legend-swatch.energy-waste { background: #ec4899; }
 .pod-grid { display: grid; gap: 10px; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 14px; overflow: visible; }
 .pod-tile { background: rgba(16,185,129,.16); border: 1px solid rgba(16,185,129,.35); border-radius: 9px; color: var(--text); cursor: pointer; min-height: 142px; overflow: visible; padding: 11px; position: relative; text-align: left; transition: transform .12s, border-color .12s, box-shadow .12s; }
 .pod-tile:hover { border-color: #ddd6fe; }
@@ -28,6 +28,7 @@
 .pod-tile.trend-rapid-warming, .pod-tile.trend-too-warm { border-color: rgba(251,113,133,.8); box-shadow: 0 0 0 1px rgba(251,113,133,.14), 0 8px 26px rgba(239,68,68,.14); }
 .pod-tile.trend-rapid-cooling, .pod-tile.trend-too-cold { border-color: rgba(96,165,250,.8); box-shadow: 0 0 0 1px rgba(96,165,250,.14), 0 8px 26px rgba(59,130,246,.12); }
 .pod-tile.trend-recovering { border-color: rgba(96,165,250,.65); }
+.pod-tile.recovery { background: rgba(59,130,246,.16); border-color: rgba(59,130,246,.48); }
 .pod-tile.warning { background: rgba(245,158,11,.2); border-color: rgba(245,158,11,.55); }
 .pod-tile.critical, .pod-tile.sensor-fault { background: rgba(239,68,68,.2); border-color: rgba(239,68,68,.6); }
 .pod-tile.offline { background: rgba(107,114,128,.2); border-color: rgba(107,114,128,.6); }

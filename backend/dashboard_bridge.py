@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read-only HTTP adapter for the vaccine dashboard.
 
-High-school version: the browser is a customer, PostgreSQL is a filing
+The browser is a customer, PostgreSQL is a filing
 cabinet, and this program is the receptionist. The browser asks the
 receptionist for records; the receptionist reads the cabinet and returns
 JSON or CSV. The receptionist is deliberately not allowed to change it.
@@ -128,7 +128,6 @@ LATEST_EVENT_QUERY = EVENT_SELECT + """
 ORDER BY event_time DESC, event_id DESC
 LIMIT 100
 """
-
 
 class DatabaseUnavailable(RuntimeError):
     """Raised when the dashboard cannot read PostgreSQL."""
@@ -314,6 +313,17 @@ class DatabaseReader:
         """Return the bounded newest-event verification view."""
         return self.fetch_events(filters, latest_first=True, limit=limit)
 
+    def fetch_recent_events(
+        self,
+        filters: dict[str, str] | None = None,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return the most recently persisted events, even when backdated."""
+        where_sql, params = build_filter_sql(filters or {})
+        query = EVENT_SELECT + where_sql + "\nORDER BY stored_at DESC, event_time DESC, event_id DESC\nLIMIT " + str(int(limit))
+        return self._map_events(self._rows(query, params))
+
     def fetch_event(self, event_id: str) -> dict[str, Any] | None:
         """Read one committed event identified by the stable event ID."""
         query = EVENT_SELECT + "\nWHERE event_id = %s\nLIMIT 1"
@@ -495,45 +505,51 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._sse_headers()
         try:
             with self.reader._connect() as connection:
+                # LISTEN is a long-lived session concern. Autocommit keeps
+                # PostgreSQL notifications flowing immediately instead of
+                # waiting behind a read-only transaction boundary.
+                connection.autocommit = True
                 with connection.cursor() as cursor:
-                    cursor.execute("SET TRANSACTION READ ONLY")
                     cursor.execute("SET TIME ZONE 'UTC'")
                     cursor.execute(f"LISTEN {EVENT_NOTIFY_CHANNEL}")
                     cursor.execute(f"LISTEN {RESET_NOTIFY_CHANNEL}")
-                connection.commit()
 
-                # Live mode is a forward-only view. Do not preload historical
-                # rows; only notifications committed after this connection is
-                # established belong in the live stream.
-                self._sse("snapshot", live_snapshot_payload())
+                    # Live mode is a forward-only view. Do not preload historical
+                    # rows; only notifications committed after this connection is
+                    # established belong in the live stream.
+                    self._sse("snapshot", live_snapshot_payload())
 
-                while True:
-                    notifications = connection.notifies(timeout=15)
-                    delivered = False
-                    for notification in notifications:
-                        delivered = True
-                        if notification.channel == RESET_NOTIFY_CHANNEL:
-                            self._sse("reset", {
-                                "events": [],
-                                "count": 0,
-                                "source": "postgresql",
-                                "live_monitoring": True,
-                                "reset": True,
-                                "scope": response_scope({}, []),
-                            })
-                            continue
-                        event = self.reader.fetch_event(notification.payload)
-                        if event is not None:
-                            self._sse("event", {
-                                "event": event,
-                                "source": "postgresql",
-                                "live_monitoring": True,
-                            })
-                    if not delivered:
-                        # Keep proxies and browser connections alive while no
-                        # event is being generated. This is not a data poll.
-                        self.wfile.write(b": keep-alive\n\n")
-                        self.wfile.flush()
+                    while True:
+                        notifications = connection.notifies(timeout=15)
+                        delivered = False
+                        for notification in notifications:
+                            delivered = True
+                            if notification.channel == RESET_NOTIFY_CHANNEL:
+                                self._sse("reset", {
+                                    "events": [],
+                                    "count": 0,
+                                    "source": "postgresql",
+                                    "live_monitoring": True,
+                                    "reset": True,
+                                    "scope": response_scope({}, []),
+                                })
+                                continue
+                            # Resolve the committed event on a short-lived read
+                            # connection. Keeping the LISTEN session free of
+                            # application queries avoids blocking notification
+                            # delivery when events arrive in quick succession.
+                            event = self.reader.fetch_event(notification.payload)
+                            if event:
+                                self._sse("event", {
+                                    "event": event,
+                                    "source": "postgresql",
+                                    "live_monitoring": True,
+                                })
+                        if not delivered:
+                            # Keep proxies and browser connections alive while no
+                            # event is being generated. This is not a data poll.
+                            self.wfile.write(b": keep-alive\n\n")
+                            self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, DatabaseUnavailable):
             return
 
@@ -588,27 +604,34 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json(200, {
                 "service": "dashboard_bridge",
                 "read_only": True,
-                "routes": ["/health", "/ready", "/api/events", "/api/live", "/api/live/stream", "/api/analytics", "/api/events/export.csv"],
+                "routes": ["/health", "/ready", "/api/events", "/api/recent", "/api/live", "/api/live/stream", "/api/analytics", "/api/events/export.csv"],
                 "hint": "Dashboard pages are served by the frontend server, not this API port.",
             })
             return
         if path == "/api/live/stream":
             self._event_stream()
             return
-        if path in {"/api/events", "/api/live", "/api/verification/latest-events"}:
+        if path in {"/api/events", "/api/live", "/api/recent", "/api/verification/latest-events"}:
             try:
-                latest = path == "/api/verification/latest-events"
+                latest = path in {"/api/recent", "/api/verification/latest-events"}
                 live = path == "/api/live"
                 if live:
                     self._json(200, {**live_snapshot_payload(), "latest_first": False})
                     return
-                events = self.reader.fetch_latest_events(filters) if latest else self.reader.fetch_events(filters)
+                events = (
+                    self.reader.fetch_recent_events(filters)
+                    if path == "/api/recent"
+                    else self.reader.fetch_latest_events(filters)
+                    if latest
+                    else self.reader.fetch_events(filters)
+                )
                 self._json(200, {
                     "events": events,
                     "count": len(events),
                     "source": "postgresql",
                     "latest_first": latest,
                     "live_monitoring": False,
+                    "recent": latest,
                     "scope": response_scope(filters, events),
                 })
             except DatabaseUnavailable as exc:

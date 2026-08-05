@@ -116,6 +116,17 @@ class DashboardBridgeTests(unittest.TestCase):
         self.assertIn("ORDER BY event_time DESC, event_id DESC", query)
         self.assertIn("LIMIT 100", query)
 
+    def test_recent_events_query_uses_persistence_order_for_backdated_batches(self):
+        connection = FakeConnection([database_row()])
+        reader = bridge.DatabaseReader(connect_factory=lambda **_: connection, settings={})
+
+        reader.fetch_recent_events()
+
+        statements = [statement for statement, _ in connection.cursor_instance.statements]
+        query = statements[-1]
+        self.assertIn("ORDER BY stored_at DESC, event_time DESC, event_id DESC", query)
+        self.assertIn("LIMIT 100", query)
+
     def test_live_snapshot_starts_empty(self):
         snapshot = bridge.live_snapshot_payload()
 

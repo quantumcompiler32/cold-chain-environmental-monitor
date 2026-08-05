@@ -15,6 +15,7 @@ from backend.temperature_event_generator import (
     expand_sensor_names,
     load_temperature_data,
     make_event,
+    mixed_pod_variant,
     parse_arguments,
     resolve_profile,
     transform_temperature,
@@ -79,6 +80,32 @@ class GeneratorScenarioTests(unittest.TestCase):
         self.assertTrue(all(events[index]["event_time"] == events[0]["event_time"] for index in range(len(events))))
         self.assertGreater(events[3]["temperature_c"], self.profile.max_c)
         self.assertEqual(events[-1]["temperature_c"], self.profile.target_c)
+
+    def test_multi_pod_mixed_run_rotates_dashboard_states_without_offline(self):
+        variants = [mixed_pod_variant(f"Pod{index}", index - 1, 20) for index in range(1, 8)]
+        events = [make_event(
+            f"Pod{index}",
+            self.row,
+            self.profile,
+            "mixed",
+            event_number=100,
+            total_events=100,
+            mixed_variant=variant,
+            occupancy_state="empty" if variant in {"empty", "energy_waste"} else "loaded",
+            batch_id=None if variant in {"empty", "energy_waste"} else "DEMO-BATCH",
+            cooling_enabled=variant == "energy_waste" if variant in {"empty", "energy_waste"} else True,
+        ) for index, variant in enumerate(variants, start=1)]
+
+        self.assertEqual(variants, ["normal", "recovery", "normal", "warning", "critical", "empty", "energy_waste"])
+        self.assertEqual(
+            [event["operational_status"] for event in events],
+            ["NORMAL", "RECOVERY", "NORMAL", "WARNING", "CRITICAL", "EMPTY", "ENERGY_WASTE"],
+        )
+        self.assertNotIn("OFFLINE", [event["operational_status"] for event in events])
+
+        normal_events = [events[index] for index in (0, 2)]
+        self.assertTrue(all(event["operational_status"] == "NORMAL" for event in normal_events))
+        self.assertTrue(all(event["severity"] == "info" for event in normal_events))
 
     def test_cli_accepts_outlier_without_a_seed(self):
         with patch.object(sys, "argv", ["generator", "--scenario", "outlier", "--count", "9", "--output-mode", "summary", "--vaccine", "pfizer_ultralow"]):

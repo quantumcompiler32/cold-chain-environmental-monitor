@@ -40,6 +40,11 @@
   const statusClass = (status) => String(status || 'UNKNOWN').toLowerCase().replace('_', '-');
   const sorted = (list) => list.slice().sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp) || Number(left.event_id) - Number(right.event_id));
   const rangeText = () => `${formatC(profile.lowerLimitC)} to ${formatC(profile.upperLimitC)}`;
+  const viewLabel = (path = currentEndpoint) => {
+    if (path.startsWith('/api/live')) return 'Live';
+    if (path.startsWith('/api/recent') || path.startsWith('/api/verification/latest-events')) return 'Recent';
+    return 'Historical';
+  };
 
   function showToast(message) {
     const toast = $('toast');
@@ -144,11 +149,10 @@
       const history = sorted(events.filter((historyEvent) => historyEvent.sensor_name === event.sensor_name));
       const summary = data.buildPodSummary(history, profile);
       const activeAlert = data.buildActiveAlerts(history, profile)[0];
-      const status = activeAlert?.severity === 'critical'
-        ? 'CRITICAL'
-        : activeAlert?.severity === 'warning'
-          ? 'WARNING'
-          : summary.operationalStatus || event.operational_status || 'NORMAL';
+      // The tile color describes the latest reading. Historical alerts remain
+      // visible in the alert list and drill-down, but must not make a newer
+      // normal or recovery reading look critical.
+      const status = summary.operationalStatus || event.operational_status || 'NORMAL';
       const attentionClass = summary.trendKey === 'stable' ? '' : ' needs-attention';
       const phaseTrail = data.buildPhaseTrail(history);
       const phaseText = phaseTrail.length > 1 ? `Path: ${phaseTrail.join(' → ')}` : `Phase: ${phaseTrail[0] || '—'}`;
@@ -247,19 +251,19 @@
 
   function scopeText(payload) {
     const scope = payload?.scope || responseScope;
-    if (!scope) return currentEndpoint.startsWith('/api/live') ? 'Live · waiting for new events' : 'Historical · selected filters';
+    if (!scope) return viewLabel() === 'Live' ? 'Live · waiting for new events' : `${viewLabel()} · latest persisted readings`;
     const start = scope.effective_start ? formatDateTime(scope.effective_start) : 'beginning';
     const end = scope.effective_end ? formatDateTime(scope.effective_end) : 'now';
-    return `${currentEndpoint.startsWith('/api/live') ? 'Live' : 'Historical'} · ${start} → ${end}`;
+    return `${viewLabel()} · ${start} → ${end}`;
   }
 
   function renderAnalyticsState() {
     const target = $('analyticsState');
     if (!target) return;
     target.className = `analytics-state ${connectionState}`;
-    if (connectionState === 'loading') target.textContent = currentEndpoint.startsWith('/api/live') ? 'Waiting for new live events…' : 'Loading persisted PostgreSQL readings…';
+    if (connectionState === 'loading') target.textContent = viewLabel() === 'Live' ? 'Waiting for new live events…' : `Loading ${viewLabel().toLowerCase()} persisted readings…`;
     else if (connectionState === 'error') target.textContent = 'Unable to load persisted readings. Check the PostgreSQL bridge and try again.';
-    else if (!events.length) target.textContent = currentEndpoint.startsWith('/api/live') ? 'No live events yet. Start the event generator to see incoming readings.' : 'No temperature readings match the selected scope.';
+    else if (!events.length) target.textContent = viewLabel() === 'Live' ? 'No live events yet. Start the event generator to see incoming readings.' : `No ${viewLabel().toLowerCase()} readings match the selected scope.`;
     else target.textContent = `${dataPointCount.toLocaleString()} persisted data point${dataPointCount === 1 ? '' : 's'} in the selected range.`;
   }
 
@@ -284,15 +288,15 @@
         dataPointCount = Number.isFinite(Number(payload?.count)) ? Number(payload.count) : events.length;
         connectionState = events.length ? 'ready' : 'empty';
         populateFilterOptions();
-        setBridgeState(true, path.startsWith('/api/live') ? 'Live PostgreSQL connected' : 'Historical PostgreSQL connected');
-        render();
+        setBridgeState(true, `${viewLabel(path)} PostgreSQL connected`);
+        queueRender();
       },
       (error) => {
         events = [];
         dataPointCount = 0;
         connectionState = 'error';
         setBridgeState(false, 'PostgreSQL unavailable');
-        render();
+        queueRender();
         showToast(error.message);
       },
       path,
@@ -313,6 +317,12 @@
       restartWatch('/api/live/stream');
       return;
     }
+    if (range === 'recent') {
+      $('filterStart').value = '';
+      $('filterEnd').value = '';
+      applyFilters('/api/recent');
+      return;
+    }
     const rangeValues = range === 'custom'
       ? data.getDateRange('custom', new Date(), { start: $('filterStart').value, end: $('filterEnd').value })
       : data.getDateRange(range, new Date());
@@ -325,9 +335,9 @@
     applyFilters();
   }
 
-  function applyFilters() {
+  function applyFilters(path = '/api/events') {
     const params = new URLSearchParams(currentFilters());
-    restartWatch('/api/events' + (params.toString() ? `?${params.toString()}` : ''));
+    restartWatch(path + (params.toString() ? `?${params.toString()}` : ''));
   }
 
   function applyProfile(profileId, bounds = {}) {
