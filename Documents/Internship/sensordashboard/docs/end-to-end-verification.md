@@ -9,7 +9,7 @@ make e2e
 
 The command starts a temporary MQTT listener and dashboard bridge, invokes the
 existing generator CLI for every case in
-[tests/e2e_scenarios.json](../tests/e2e_scenarios.json), and reads events back
+[backend/tests/e2e_scenarios.json](../backend/tests/e2e_scenarios.json), and reads events back
 through `GET /api/events?batch=...`. The test does not import temperature
 transformation functions or call persistence internals. Its assertions are
 observable contracts: event count, correlation key, scenario/phase labels,

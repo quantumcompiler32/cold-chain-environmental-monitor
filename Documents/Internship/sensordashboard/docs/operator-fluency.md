@@ -96,7 +96,7 @@ For each scenario, say what you expect before running it:
 2. Start Mosquitto and PostgreSQL.
 3. Start the listener with --write-db.
 4. Run one named generator scenario with --count, --seed, and --output-mode summary.
-5. Run `python3 scripts/verify_persistence.py` and point out current event_time values and ingestion latency.
+5. Run `python3 db/verify_persistence.py` and point out current event_time values and ingestion latency.
 6. Open the dashboard and explain how the API response becomes the displayed state.
 7. Repeat for the next isolated scenario.
 ```
@@ -104,17 +104,17 @@ For each scenario, say what you expect before running it:
 Recommended runs:
 
 ```bash
-APP_ENV=demo python3 scripts/reset_demo.py --confirm-reset
-python3 -m services.temperature_event_generator --scenario normal --count 30 --seed 42 --output-mode summary
-python3 scripts/verify_persistence.py
+APP_ENV=demo python3 db/reset_demo.py --confirm-reset
+python3 -m backend.temperature_event_generator --scenario normal --count 30 --seed 42 --output-mode summary
+python3 db/verify_persistence.py
 
-APP_ENV=demo python3 scripts/reset_demo.py --confirm-reset
-python3 -m services.temperature_event_generator --scenario recovery --count 30 --seed 42 --output-mode summary
-python3 scripts/verify_persistence.py
+APP_ENV=demo python3 db/reset_demo.py --confirm-reset
+python3 -m backend.temperature_event_generator --scenario recovery --count 30 --seed 42 --output-mode summary
+python3 db/verify_persistence.py
 
-APP_ENV=demo python3 scripts/reset_demo.py --confirm-reset
-python3 -m services.temperature_event_generator --scenario mixed --count 30 --seed 42 --output-mode summary
-python3 scripts/verify_persistence.py
+APP_ENV=demo python3 db/reset_demo.py --confirm-reset
+python3 -m backend.temperature_event_generator --scenario mixed --count 30 --seed 42 --output-mode summary
+python3 db/verify_persistence.py
 ```
 
 Use `--scenario outlier` when you want every generated event to be outside the

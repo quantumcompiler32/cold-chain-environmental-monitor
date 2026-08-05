@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<!-- Purpose: display the operator audit-log view backed by the read-only bridge. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Audit Log</title>
+<link rel="stylesheet" href="../styles/shared.css">
+<style>
+  :root { --accent: #6b7280; --accent-a: rgba(107,114,128,0.1); }
+
+  .audit-wrap {
+    display: flex; flex-direction: column;
+    height: 100vh; overflow: hidden;
+  }
+
+  /* toolbar */
+  .audit-toolbar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 11px 20px;
+    background: #0a0c10;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .audit-filter {
+    padding: 5px 11px; border-radius: 6px;
+    border: 1px solid var(--border2);
+    background: var(--surface2); color: var(--dim);
+    font-size: 12px; font-family: var(--font); outline: none; cursor: pointer;
+  }
+  .audit-filter:focus { border-color: #6b7280; color: var(--text); }
+  .audit-search {
+    padding: 5px 11px; border-radius: 6px;
+    border: 1px solid var(--border2);
+    background: var(--surface2); color: var(--dim);
+    font-size: 12px; font-family: var(--mono); outline: none; width: 220px;
+  }
+  .audit-search:focus { border-color: #6b7280; color: var(--text); }
+  .audit-search::placeholder { color: var(--muted); }
+  .audit-count {
+    font-size: 11px; color: var(--muted);
+    padding: 4px 10px; border-radius: 20px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    margin-left: auto;
+  }
+  .audit-export-btn {
+    padding: 5px 13px; border-radius: 6px;
+    border: 1px solid var(--border2);
+    background: rgba(255,255,255,0.04);
+    color: var(--dim); font-size: 12px; cursor: pointer;
+    font-family: var(--font); transition: background 0.12s, color 0.12s;
+  }
+  .audit-export-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+
+  /* stats strip */
+  .audit-stats {
+    display: flex; gap: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .audit-stat {
+    flex: 1; padding: 10px 18px;
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .audit-stat:last-child { border-right: none; }
+  .audit-stat-val { font-size: 18px; font-weight: 600; letter-spacing: -0.5px; }
+  .audit-stat-label { font-size: 10px; color: var(--muted); letter-spacing: 0.6px; text-transform: uppercase; }
+
+  /* table */
+  .audit-table-wrap {
+    flex: 1; overflow-y: auto;
+  }
+  .audit-table-wrap::-webkit-scrollbar { width: 4px; }
+  .audit-table-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+  .audit-table {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+  }
+  .audit-table thead {
+    position: sticky; top: 0; z-index: 2;
+    background: #0d0f14;
+  }
+  .audit-table th {
+    text-align: left; padding: 9px 14px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.8px;
+    color: var(--muted); text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .audit-table td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+    color: var(--dim);
+  }
+  .audit-table tr:hover td { background: rgba(255,255,255,0.025); }
+  .audit-table tr.new-row td { animation: rowFlash 0.6s ease; }
+  @keyframes rowFlash {
+    0%   { background: rgba(107,114,128,0.15); }
+    100% { background: transparent; }
+  }
+
+  /* badges */
+  .ev-badge {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    padding: 2px 8px; border-radius: 4px; white-space: nowrap;
+    font-family: var(--mono); letter-spacing: 0.3px;
+  }
+  .ev-alert    { background: rgba(239,68,68,0.15);  color: #ef4444; }
+  .ev-config   { background: rgba(59,130,246,0.15);  color: #3b82f6; }
+  .ev-auth     { background: rgba(139,92,246,0.15);  color: #a78bfa; }
+  .ev-data     { background: rgba(16,185,129,0.15);  color: #10b981; }
+  .ev-system   { background: rgba(107,114,128,0.12); color: #9ca3af; }
+  .ev-thresh   { background: rgba(245,158,11,0.15);  color: #f59e0b; }
+
+  .sev-badge {
+    display: inline-block; font-size: 9px; font-weight: 700;
+    padding: 1px 6px; border-radius: 3px; letter-spacing: 0.4px;
+  }
+  .sev-crit { background: rgba(239,68,68,0.18);  color: #ef4444; }
+  .sev-warn { background: rgba(245,158,11,0.18);  color: #f59e0b; }
+  .sev-info { background: rgba(107,114,128,0.12); color: #9ca3af; }
+
+  .ts-cell { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .domain-cell { font-size: 11px; white-space: nowrap; }
+  .user-cell { font-size: 11px; color: var(--text); }
+  .detail-cell { color: var(--dim); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* live indicator */
+  .live-chip {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: #10b981; font-weight: 600;
+  }
+  .live-chip-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #10b981; animation: livepulse 2s ease-in-out infinite;
+  }
+  @keyframes livepulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* pagination footer */
+  .audit-footer {
+    display: flex; align-items: center; gap: 14px;
+    padding: 8px 18px;
+    background: #0a0c10;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .audit-footer-text { font-size: 11px; color: var(--muted); }
+  .page-btn {
+    padding: 4px 11px; border-radius: 5px;
+    border: 1px solid var(--border2);
+    background: rgba(255,255,255,0.04);
+    color: var(--dim); font-size: 11px; cursor: pointer;
+    font-family: var(--font);
+  }
+  .page-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+  .page-btn.active-page { background: rgba(107,114,128,0.2); color: var(--text); border-color: #6b7280; }
+</style>
+</head>
+<body>
+
+<div class="audit-wrap">
+
+  <!-- Toolbar -->
+  <div class="audit-toolbar">
+    <span class="live-chip"><span class="live-chip-dot"></span>LIVE</span>
+    <input class="audit-search" id="searchInput" placeholder="Filter by sensor ID, user, detail…" oninput="filterRows()">
+    <select class="audit-filter" id="typeFilter" onchange="filterRows()">
+      <option value="">All event types</option>
+      <option value="ALERT">Alert</option>
+      <option value="CONFIG">Config change</option>
+      <option value="AUTH">Auth</option>
+      <option value="DATA">Data</option>
+      <option value="THRESH">Threshold</option>
+      <option value="SYSTEM">System</option>
+    </select>
+    <select class="audit-filter" id="sevFilter" onchange="filterRows()">
+      <option value="">All severities</option>
+      <option value="CRIT">Critical</option>
+      <option value="WARN">Warning</option>
+      <option value="INFO">Info</option>
+    </select>
+    <select class="audit-filter" id="domainFilter" onchange="filterRows()">
+      <option value="">All domains</option>
+      <option>Cooling</option>
+      <option>Fire Weather</option>
+      <option>Vaccine</option>
+      <option>Energy</option>
+      <option>Air Quality</option>
+      <option>Platform</option>
+    </select>
+    <span class="audit-count" id="rowCountLabel">Showing 0 events</span>
+    <button class="audit-export-btn">⬇ Export CSV</button>
+  </div>
+
+  <!-- Stats strip -->
+  <div class="audit-stats">
+    <div class="audit-stat"><div class="audit-stat-val" id="stat-total" style="color:var(--text)">0</div><div class="audit-stat-label">Total events today</div></div>
+    <div class="audit-stat"><div class="audit-stat-val" id="stat-crit"  style="color:#ef4444">0</div><div class="audit-stat-label">Critical</div></div>
+    <div class="audit-stat"><div class="audit-stat-val" id="stat-warn"  style="color:#f59e0b">0</div><div class="audit-stat-label">Warnings</div></div>
+    <div class="audit-stat"><div class="audit-stat-val" id="stat-auth"  style="color:#a78bfa">0</div><div class="audit-stat-label">Auth events</div></div>
+    <div class="audit-stat"><div class="audit-stat-val" id="stat-cfg"   style="color:#3b82f6">0</div><div class="audit-stat-label">Config changes</div></div>
+  </div>
+
+  <!-- Table -->
+  <div class="audit-table-wrap">
+    <table class="audit-table">
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Type</th>
+          <th>Severity</th>
+          <th>Domain</th>
+          <th>User / Source</th>
+          <th>Sensor / Resource</th>
+          <th>Detail</th>
+        </tr>
+      </thead>
+      <tbody id="auditBody"></tbody>
+    </table>
+  </div>
+
+  <!-- Footer -->
+  <div class="audit-footer">
+    <span class="audit-footer-text" id="footerText">Loading…</span>
+    <div style="margin-left:auto;display:flex;gap:6px">
+      <button class="page-btn active-page">1</button>
+      <button class="page-btn">2</button>
+      <button class="page-btn">3</button>
+      <button class="page-btn">›</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Event seed data ──
+const EVENTS = [
+  {type:'ALERT',  sev:'CRIT', domain:'Cooling',     user:'system',        resource:'DC-D-07-INLET',  detail:'Inlet temp 28.4°C exceeded critical threshold (27°C)'},
+  {type:'ALERT',  sev:'CRIT', domain:'Fire Weather', user:'system',        resource:'FW-NW-12-FWI',   detail:'FWI = 41 — RED FLAG WARNING dispatched to authorities'},
+  {type:'ALERT',  sev:'CRIT', domain:'Fire Weather', user:'system',        resource:'FW-NE-08-WIND',  detail:'Wind gust 80 km/h exceeded critical threshold'},
+  {type:'ALERT',  sev:'WARN', domain:'Cooling',      user:'system',        resource:'DC-CRAH-03',     detail:'PUE elevated to 1.42 — CRAH-03 efficiency degraded'},
+  {type:'ALERT',  sev:'WARN', domain:'Vaccine',      user:'system',        resource:'VC-CC04-TEMP',   detail:'CC-04 temperature at 8.7°C — cold chain excursion in progress'},
+  {type:'ALERT',  sev:'WARN', domain:'Air Quality',  user:'system',        resource:'AQ-NE07-PM25',   detail:'PM2.5 = 52 µg/m³ — Unhealthy for Sensitive Groups'},
+  {type:'ALERT',  sev:'WARN', domain:'Energy',       user:'system',        resource:'BE-F3W-HVAC',    detail:'HVAC running at full load in unoccupied zone F3-West'},
+  {type:'CONFIG', sev:'INFO', domain:'Platform',     user:'areyes',        resource:'thresholds',     detail:'Updated Fire Weather FWI critical threshold: 32 → 33'},
+  {type:'CONFIG', sev:'INFO', domain:'Platform',     user:'areyes',        resource:'notifications',  detail:'Enabled SMS escalation for critical alerts'},
+  {type:'CONFIG', sev:'INFO', domain:'Platform',     user:'mcole',         resource:'retention',      detail:'Raw data retention policy changed: 7 days → 30 days'},
+  {type:'CONFIG', sev:'WARN', domain:'Platform',     user:'dshen',         resource:'api-keys',       detail:'New API key generated: scope=read,write (ETL pipeline)'},
+  {type:'AUTH',   sev:'INFO', domain:'Platform',     user:'areyes',        resource:'session',        detail:'Login successful from 10.0.1.42 (Chrome/macOS)'},
+  {type:'AUTH',   sev:'INFO', domain:'Platform',     user:'pnair',         resource:'session',        detail:'Login successful from 10.0.2.18 (Firefox/Windows)'},
+  {type:'AUTH',   sev:'WARN', domain:'Platform',     user:'unknown',       resource:'session',        detail:'Failed login attempt — invalid credentials (192.168.9.9)'},
+  {type:'AUTH',   sev:'INFO', domain:'Platform',     user:'mcole',         resource:'session',        detail:'Session token refreshed'},
+  {type:'DATA',   sev:'INFO', domain:'Cooling',      user:'ingest-svc',    resource:'DC-A-01-INLET',  detail:'Sensor resumed reporting after 4-min gap'},
+  {type:'DATA',   sev:'WARN', domain:'Air Quality',  user:'ingest-svc',    resource:'AQ-NE-11',       detail:'Sensor offline — no readings for 2 h, maintenance dispatched'},
+  {type:'DATA',   sev:'WARN', domain:'Air Quality',  user:'ingest-svc',    resource:'AQ-NE-15',       detail:'Sensor offline — battery voltage below 3.1 V'},
+  {type:'THRESH', sev:'INFO', domain:'Vaccine',      user:'areyes',        resource:'VC-thresh',      detail:'Cold chain warn threshold updated: 7°C → 7.5°C'},
+  {type:'THRESH', sev:'INFO', domain:'Energy',       user:'mcole',         resource:'BE-thresh',      detail:'CO₂ ppm critical threshold set to 1200 ppm (was 1000)'},
+  {type:'SYSTEM', sev:'INFO', domain:'Platform',     user:'scheduler',     resource:'db-backup',      detail:'Daily InfluxDB snapshot completed — 2.4 GB, duration 1m 12s'},
+  {type:'SYSTEM', sev:'INFO', domain:'Platform',     user:'scheduler',     resource:'agg-job',        detail:'Hourly aggregation job completed across all 5 domains'},
+  {type:'SYSTEM', sev:'WARN', domain:'Platform',     user:'kafka-mirror',  resource:'kafka-topic',    detail:'Kafka mirror consumer lag exceeded 500 msgs — degraded'},
+  {type:'SYSTEM', sev:'INFO', domain:'Platform',     user:'scheduler',     resource:'cert-check',     detail:'TLS certificate valid — expires in 84 days'},
+  {type:'ALERT',  sev:'INFO', domain:'Cooling',      user:'system',        resource:'DC-CRAH-01',     detail:'CRAH-01 returned to normal operation after reset'},
+  {type:'ALERT',  sev:'INFO', domain:'Vaccine',      user:'system',        resource:'VC-CC02-TEMP',   detail:'CC-02 returned to range after 4-min excursion — stock unaffected'},
+  {type:'DATA',   sev:'INFO', domain:'Fire Weather', user:'ingest-svc',    resource:'FW-SE-04',       detail:'Sensor back online after 6-min comms dropout'},
+  {type:'AUTH',   sev:'INFO', domain:'Platform',     user:'lfischer',      resource:'session',        detail:'Login successful from 10.0.4.55 (Safari/macOS)'},
+  {type:'CONFIG', sev:'INFO', domain:'Platform',     user:'areyes',        resource:'stream-interval',detail:'Raw stream interval changed: 1000 ms → 500 ms'},
+  {type:'SYSTEM', sev:'INFO', domain:'Platform',     user:'scheduler',     resource:'export-job',     detail:'Scheduled CSV export completed — Air Quality, last 30 days'},
+];
+
+// ── Generate timestamped rows from seed ──
+const allRows = [];
+const now = Date.now();
+
+// Seed historical rows (~last 8 hours, newest first)
+EVENTS.forEach((ev, i) => {
+  const offsetMs = i * 17 * 60000 + Math.random() * 5 * 60000; // spread ~17 min apart
+  allRows.push({ ...ev, ts: new Date(now - offsetMs) });
+});
+
+// Sort newest first
+allRows.sort((a, b) => b.ts - a.ts);
+
+// ── Render ──
+let visibleRows = [...allRows];
+
+function tsStr(d) {
+  return d.toISOString().replace('T', ' ').slice(0, 19);
+}
+
+function evClass(t) {
+  return { ALERT:'ev-alert', CONFIG:'ev-config', AUTH:'ev-auth', DATA:'ev-data', THRESH:'ev-thresh', SYSTEM:'ev-system' }[t] || 'ev-system';
+}
+function sevClass(s) {
+  return { CRIT:'sev-crit', WARN:'sev-warn', INFO:'sev-info' }[s] || 'sev-info';
+}
+function domainIcon(d) {
+  return { Cooling:'❄️', 'Fire Weather':'🔥', Vaccine:'💉', Energy:'⚡', 'Air Quality':'🌬️', Platform:'⚙️' }[d] || '📋';
+}
+
+function renderRow(ev, prepend) {
+  const tr = document.createElement('tr');
+  if (prepend) tr.classList.add('new-row');
+  tr.dataset.type   = ev.type;
+  tr.dataset.sev    = ev.sev;
+  tr.dataset.domain = ev.domain;
+  tr.dataset.search = (ev.resource + ' ' + ev.user + ' ' + ev.detail).toLowerCase();
+
+  tr.innerHTML = `
+    <td class="ts-cell">${tsStr(ev.ts)}</td>
+    <td><span class="ev-badge ${evClass(ev.type)}">${ev.type}</span></td>
+    <td><span class="sev-badge ${sevClass(ev.sev)}">${ev.sev}</span></td>
+    <td class="domain-cell">${domainIcon(ev.domain)} ${ev.domain}</td>
+    <td class="user-cell">${ev.user}</td>
+    <td class="ts-cell" style="color:var(--dim)">${ev.resource}</td>
+    <td class="detail-cell" title="${ev.detail}">${ev.detail}</td>
+  `;
+  return tr;
+}
+
+function rebuildTable() {
+  const body = document.getElementById('auditBody');
+  body.innerHTML = '';
+  const typeF   = document.getElementById('typeFilter').value;
+  const sevF    = document.getElementById('sevFilter').value;
+  const domainF = document.getElementById('domainFilter').value;
+  const searchF = document.getElementById('searchInput').value.toLowerCase();
+
+  let shown = 0;
+  allRows.forEach(ev => {
+    if (typeF   && ev.type   !== typeF)   return;
+    if (sevF    && ev.sev    !== sevF)    return;
+    if (domainF && ev.domain !== domainF) return;
+    if (searchF && !ev.search.includes(searchF)) return;
+    body.appendChild(renderRow(ev, false));
+    shown++;
+  });
+  document.getElementById('rowCountLabel').textContent = `Showing ${shown} events`;
+  document.getElementById('footerText').textContent = `${shown} of ${allRows.length} events`;
+}
+
+function filterRows() { rebuildTable(); }
+
+// ── Stats ──
+function updateStats() {
+  const today = allRows.filter(r => {
+    const d = new Date(r.ts); const n = new Date();
+    return d.getFullYear()===n.getFullYear() && d.getMonth()===n.getMonth() && d.getDate()===n.getDate();
+  });
+  document.getElementById('stat-total').textContent = today.length;
+  document.getElementById('stat-crit').textContent  = today.filter(r=>r.sev==='CRIT').length;
+  document.getElementById('stat-warn').textContent  = today.filter(r=>r.sev==='WARN').length;
+  document.getElementById('stat-auth').textContent  = today.filter(r=>r.type==='AUTH').length;
+  document.getElementById('stat-cfg').textContent   = today.filter(r=>r.type==='CONFIG').length;
+}
+
+// ── Live new event injection ──
+const liveTemplates = [
+  {type:'DATA',   sev:'INFO', domain:'Cooling',      user:'ingest-svc',   resource:'DC-B-03-INLET',  detail:'Routine reading ingested — temp_c=21.8, humidity_pct=44.2'},
+  {type:'DATA',   sev:'INFO', domain:'Fire Weather', user:'ingest-svc',   resource:'FW-SW-07',       detail:'Routine reading — wind_kmh=38.2, humidity_pct=11.4, fwi=29.1'},
+  {type:'DATA',   sev:'INFO', domain:'Vaccine',      user:'ingest-svc',   resource:'VC-CC01',        detail:'Routine reading — temp_c=3.4, compressor_duty_pct=38.1'},
+  {type:'ALERT',  sev:'WARN', domain:'Air Quality',  user:'system',       resource:'AQ-DT-01',       detail:'PM2.5 crossed warn threshold: 26.4 µg/m³'},
+  {type:'SYSTEM', sev:'INFO', domain:'Platform',     user:'scheduler',    resource:'health-check',   detail:'All services healthy — DB latency p95=11 ms'},
+  {type:'DATA',   sev:'INFO', domain:'Energy',       user:'ingest-svc',   resource:'BE-F2-LUX-03',   detail:'Routine reading — lux=342, dimmer_pct=68, occupancy=1'},
+  {type:'AUTH',   sev:'INFO', domain:'Platform',     user:'mcole',        resource:'session',        detail:'API key used for read request — ETL pipeline'},
+];
+
+function injectLiveRow() {
+  const tmpl = liveTemplates[Math.floor(Math.random() * liveTemplates.length)];
+  const ev = { ...tmpl, ts: new Date(), search: (tmpl.resource + ' ' + tmpl.user + ' ' + tmpl.detail).toLowerCase() };
+  allRows.unshift(ev);
+  if (allRows.length > 500) allRows.pop();
+  updateStats();
+
+  // prepend if not filtered out
+  const typeF   = document.getElementById('typeFilter').value;
+  const sevF    = document.getElementById('sevFilter').value;
+  const domainF = document.getElementById('domainFilter').value;
+  const searchF = document.getElementById('searchInput').value.toLowerCase();
+  if (typeF   && ev.type   !== typeF)   return;
+  if (sevF    && ev.sev    !== sevF)    return;
+  if (domainF && ev.domain !== domainF) return;
+  if (searchF && !ev.search.includes(searchF)) return;
+
+  const body = document.getElementById('auditBody');
+  const tr = renderRow(ev, true);
+  body.insertBefore(tr, body.firstChild);
+  // prune DOM rows past 120
+  while (body.children.length > 120) body.removeChild(body.lastChild);
+  const shown = body.children.length;
+  document.getElementById('rowCountLabel').textContent = `Showing ${shown} events`;
+  document.getElementById('footerText').textContent = `${shown} of ${allRows.length} events`;
+}
+
+// ── Init ──
+rebuildTable();
+updateStats();
+setInterval(injectLiveRow, 3500);
+</script>
+</body>
+</html>

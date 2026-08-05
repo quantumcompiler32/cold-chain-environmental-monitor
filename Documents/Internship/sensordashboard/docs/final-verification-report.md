@@ -17,11 +17,11 @@ commit is pushed to GitHub and the local/remote branch hashes match.
 
 | # | Criterion | Result | Evidence |
 |---:|---|---|---|
-| 1 | Repository structure is coherent and reproducible | **PASS** | The maintained layout is `services/`, `scripts/`, `tests/`, `database/`, `web/`, `data/`, and `docs/`. The old flat tree, `archive/`, and `phase1-stitch-ui/` are removed from the maintained project. README/runbooks use repository-relative commands, website port `8766`, and API port `8787`. |
+| 1 | Repository structure is coherent and reproducible | **PASS** | The maintained layout is `frontend/`, `db/`, `backend/`, `ai_worker/`, `edge/`, and `docs/`, with tests kept beside the owning package. README/runbooks use repository-relative commands, website port `8766`, and API port `8787`. |
 | 2 | Local code and committed deliverables are aligned | **PASS** | The maintained source, canonical data fixture, comments, docs, and tests are committed on `quant` at `02f63fd` and pushed to GitHub; the scoped project comparison against `origin/quant` is empty. |
 | 3 | Every process has a documented command and responsibility | **PASS** | `docs/architecture-and-pipeline.md` has the component responsibility table; `docs/database-access.md` has the read/write ledger; `README.md`, `docs/setup-and-runbook.md`, and `docs/terminal-runbook.md` provide commands for PostgreSQL, Mosquitto, listener, bridge, web server, generator, and optional ML service. |
 | 4 | Generator → listener → database path is proven | **PASS** | `make e2e` passed all five manifest cases through public process boundaries. The run generated and the bridge observed 26 events; PostgreSQL contains 26 current-run domain rows and 26 matching generic rows. |
-| 5 | Database writer is identified | **PASS** | `docs/database-access.md` identifies `services.temperature_subscriber` with `--write-db` as the normal write owner. `services/temperature_subscriber.py:176-272` inserts both projections transactionally and emits `pg_notify` after commit. |
+| 5 | Database writer is identified | **PASS** | `docs/database-access.md` identifies `backend.temperature_subscriber` with `--write-db` as the normal write owner. `backend/temperature_subscriber.py:176-272` inserts both projections transactionally and emits `pg_notify` after commit. |
 | 6 | Dashboard reader is genuinely read-only | **PASS** | `DatabaseReader` executes `SET TRANSACTION READ ONLY`; bridge `POST`/`PUT`/`PATCH`/`DELETE` return `405`. Direct `POST /api/events` returned `405`, `Allow: GET, OPTIONS`, and `The dashboard bridge is read-only.` |
 | 7 | Latest-N query proves current events reached PostgreSQL | **PASS** | Direct `SELECT ... ORDER BY stored_at DESC, event_id DESC LIMIT 5` returned current-run event IDs, `event_time`, `received_at`, `stored_at`, batch IDs, and statuses. `make verify-fast` returned `latest_run_id=e2e-20260805T005534-0e0bbd3c` and `read_only=true`. |
 | 8 | HTTP routes and static assets have no unexplained 404s | **PASS** | `/health`, `/ready`, `/api`, API events, analytics, and CSV returned expected responses. A page requested on the API port returned a documented diagnostic 404 pointing to the website port. All 26 maintained web files returned `200`; all local HTML asset references resolved. |
@@ -129,7 +129,7 @@ Temporary local servers were started using the documented commands. Observed:
 ```text
 make test                                      48 tests, OK, 5 expected sandbox skips
 RUN_DB_INTEGRATION=1 ... unittest discover    48 tests, OK
-node --test web/scripts/*.test.js              19 tests, pass 19, fail 0
+node --test frontend/tests/*.test.js              19 tests, pass 19, fail 0
 make e2e                                       5 cases passed, status=passed
 ```
 

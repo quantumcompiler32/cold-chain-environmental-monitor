@@ -40,7 +40,7 @@ make train-models
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
-python3 -m services.temperature_subscriber --write-db --output-mode verbose
+python3 -m backend.temperature_subscriber --write-db --output-mode verbose
 ```
 
 ## Terminal 2 — dashboard bridge
@@ -48,7 +48,7 @@ python3 -m services.temperature_subscriber --write-db --output-mode verbose
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
-python3 -m services.dashboard_bridge
+python3 -m backend.dashboard_bridge
 ```
 
 ## Terminal 3 — dashboard website
@@ -64,7 +64,7 @@ python3 -m http.server 8766 --bind 127.0.0.1 --directory web
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
-python3 -m services.ml_service
+python3 -m ai_worker.ml_service
 ```
 
 ## Check dashboard bridge
@@ -92,7 +92,7 @@ http://127.0.0.1:8766/pages/domain-vaccine.html
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
-python3 -m services.temperature_event_generator --sensor Pod1 --scenario normal --count 30 --interval-ms 100 --seed 42 --output-mode summary
+python3 -m backend.temperature_event_generator --sensor Pod1 --scenario normal --count 30 --interval-ms 100 --seed 42 --output-mode summary
 ```
 
 ## Generate live outlier events
@@ -100,7 +100,7 @@ python3 -m services.temperature_event_generator --sensor Pod1 --scenario normal 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
-python3 -m services.temperature_event_generator --sensor Pod1 --scenario outlier --count 30 --interval-ms 100 --output-mode summary
+python3 -m backend.temperature_event_generator --sensor Pod1 --scenario outlier --count 30 --interval-ms 100 --output-mode summary
 ```
 
 ## Generate live warning events
@@ -108,7 +108,7 @@ python3 -m services.temperature_event_generator --sensor Pod1 --scenario outlier
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
-python3 -m services.temperature_event_generator --sensor Pod1 --scenario warning --count 30 --interval-ms 100 --output-mode summary
+python3 -m backend.temperature_event_generator --sensor Pod1 --scenario warning --count 30 --interval-ms 100 --output-mode summary
 ```
 
 ## Generate live recovery events
@@ -116,7 +116,7 @@ python3 -m services.temperature_event_generator --sensor Pod1 --scenario warning
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
-python3 -m services.temperature_event_generator --sensor Pod1 --scenario recovery --count 30 --interval-ms 100 --output-mode summary
+python3 -m backend.temperature_event_generator --sensor Pod1 --scenario recovery --count 30 --interval-ms 100 --output-mode summary
 ```
 
 ## Generate a mixed event sequence
@@ -124,7 +124,7 @@ python3 -m services.temperature_event_generator --sensor Pod1 --scenario recover
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
-python3 -m services.temperature_event_generator --sensor Pod1 --scenario mixed --count 30 --interval-ms 100 --output-mode summary
+python3 -m backend.temperature_event_generator --sensor Pod1 --scenario mixed --count 30 --interval-ms 100 --output-mode summary
 ```
 
 ## Generate events for multiple Pods
@@ -132,7 +132,7 @@ python3 -m services.temperature_event_generator --sensor Pod1 --scenario mixed -
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
-python3 -m services.temperature_event_generator --sensor Pod1 Pod2 Pod3 --scenario normal --count 30 --interval-ms 100 --output-mode summary
+python3 -m backend.temperature_event_generator --sensor Pod1 Pod2 Pod3 --scenario normal --count 30 --interval-ms 100 --output-mode summary
 ```
 
 ## Generate all demo states
@@ -148,13 +148,13 @@ make demo-all COUNT=30 INTERVAL_MS=200 OUTPUT_MODE=summary
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
-python3 scripts/verify_persistence.py
+python3 db/verify_persistence.py
 ```
 
 For a fast readiness and raw/domain parity check:
 
 ```bash
-python3 scripts/verify_database.py
+python3 db/verify_database.py
 ```
 
 ## Run tests
@@ -163,5 +163,5 @@ python3 scripts/verify_database.py
 cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
 make test
-node --test web/scripts/vaccine-data.test.js web/scripts/vaccine-navigation.test.js web/scripts/vaccine-inference.test.js
+node --test frontend/tests/*.test.js
 ```

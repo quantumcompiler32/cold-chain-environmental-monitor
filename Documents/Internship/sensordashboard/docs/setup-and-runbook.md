@@ -18,11 +18,11 @@ Create the application database and canonical tables once:
 
 ```bash
 createdb iotdb
-psql -d iotdb -f database/bootstrap/001_core.sql
+psql -d iotdb -f db/bootstrap/001_core.sql
 ```
 
 Before every run, check `pg_isready`, MQTT port 1883, and
-`python3 scripts/verify_database.py`.
+`python3 db/verify_database.py`.
 
 Train the optional advisory model bundle once:
 
@@ -42,7 +42,7 @@ make start-listener LISTENER_OUTPUT_MODE=verbose
 make start-dashboard
 
 # Terminal 3: static dashboard assets
-python3 -m http.server 8766 --bind 127.0.0.1 --directory web
+python3 -m http.server 8766 --bind 127.0.0.1 --directory frontend
 
 # Terminal 4, optional ML tab
 make start-ml-service
@@ -117,7 +117,7 @@ Run independent checks separately when infrastructure is unavailable:
 
 ```bash
 make test
-node --test web/scripts/*.test.js
+node --test frontend/tests/*.test.js
 ```
 
 Stop with Ctrl-C in reverse startup order (generator, web server, bridge,

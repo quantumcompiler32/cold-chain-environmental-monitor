@@ -30,13 +30,13 @@ browser dashboard / verification client
 
 | Component | Responsibility | Boundary |
 | --- | --- | --- |
-| `services/temperature_event_generator.py` | Reads source temperature variation, applies a named scenario, builds the event contract, and publishes MQTT messages. | CLI and `devices/temperature` MQTT topic |
+| `backend/temperature_event_generator.py` | Reads source temperature variation, applies a named scenario, builds the event contract, and publishes MQTT messages. | CLI and `devices/temperature` MQTT topic |
 | Mosquitto | Transports messages locally. | MQTT on `localhost:1883` |
-| `services/temperature_subscriber.py` | Validates the event, stamps ingestion time, and performs the atomic dual write. | MQTT consumer and PostgreSQL transaction |
+| `backend/temperature_subscriber.py` | Validates the event, stamps ingestion time, and performs the atomic dual write. | MQTT consumer and PostgreSQL transaction |
 | `telemetry_logs` | Retains generic raw JSON and transport facts. | PostgreSQL table |
 | `vaccine_temperature_events` | Stores vaccine-specific fields used by the dashboard. | PostgreSQL table, keyed by `event_id` |
-| `services/dashboard_bridge.py` | Serves committed events and analytics without write access. | HTTP on `localhost:8787`, plus SSE |
-| `web/` | Displays the read-only bridge responses. | Browser client |
+| `backend/dashboard_bridge.py` | Serves committed events and analytics without write access. | HTTP on `localhost:8787`, plus SSE |
+| `frontend/` | Displays the read-only bridge responses. | Browser client |
 
 The generator's CSV is guidance for source variation only. It does not provide
 the live event timestamp. `event_time` is created when the event is generated;
@@ -55,8 +55,8 @@ notification is sent only after the transaction commits, so the live dashboard
 does not receive a rolled-back event. `run_id` groups events from one generator
 invocation for diagnostics; `event_id` remains the identity of one reading.
 
-The clean schema is [database/bootstrap/001_core.sql](../database/bootstrap/001_core.sql).
-Schema changes belong in [database/migrations/](../database/migrations/), not in
+The clean schema is [db/bootstrap/001_core.sql](../db/bootstrap/001_core.sql).
+Schema changes belong in [db/migrations/](../db/migrations/), not in
 the clean bootstrap path.
 
 ## Read-only dashboard contract

@@ -3,7 +3,7 @@
 The event contract is shared by the generator, listener, database, bridge, and
 dashboard. Use the names below when writing tests, reports, or presentation
 notes. The full database shape is defined by
-[database/bootstrap/001_core.sql](../database/bootstrap/001_core.sql).
+[db/bootstrap/001_core.sql](../db/bootstrap/001_core.sql).
 
 ## Event fields
 

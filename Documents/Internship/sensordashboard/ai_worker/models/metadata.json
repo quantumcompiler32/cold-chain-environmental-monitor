@@ -1,0 +1,18 @@
+{
+  "model_version": "v1",
+  "source": "Test1_TempCO2O2.csv",
+  "feature_names": [
+    "hours",
+    "temperature_c",
+    "sensor_spread_c"
+  ],
+  "training_rows": 112267,
+  "fitted_rows": 9356,
+  "vaccine_type": "pfizer_ultralow",
+  "algorithms": [
+    "linear regression",
+    "logistic regression",
+    "k-means clustering"
+  ],
+  "educational_use_only": true
+}
