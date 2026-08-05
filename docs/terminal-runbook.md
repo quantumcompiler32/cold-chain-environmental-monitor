@@ -1,5 +1,9 @@
 # Cold-chain terminal runbook
 
+This copy-paste runbook is written for macOS with Homebrew. On Linux, replace
+the two Homebrew service commands with your distribution's PostgreSQL and
+Mosquitto service commands, then continue with the same application commands.
+
 ## One-time setup
 
 ```bash
@@ -56,7 +60,7 @@ python3 -m backend.dashboard_bridge
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
-python3 -m http.server 8766 --bind 127.0.0.1 --directory web
+python3 -m http.server 8766 --bind 127.0.0.1 --directory frontend
 ```
 
 ## Terminal 4 — ML inference service

@@ -5,6 +5,12 @@ __pycache__/
 *.log
 .dashboard_uploads/
 test-reports/
+.env
+.env.*
+!.env.example
+.coverage
+coverage.xml
+htmlcov/
 
 # Keep the optional AI artifacts in the handoff so another checkout can run
 # the inference tab without retraining first. Python caches remain ignored.

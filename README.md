@@ -15,7 +15,7 @@ hardware reference material and an optional serial diagnostic tool.
 
 ## Required software
 
-- macOS or Linux with Python 3.12+.
+- macOS or Linux with Python 3.12+. These are the supported laptop platforms.
 - PostgreSQL 16 or a compatible PostgreSQL installation.
 - Mosquitto MQTT broker.
 - Node.js 18+ for frontend tests.
@@ -54,7 +54,18 @@ the local demo:
 | `ML_MODEL_DIR` | `ai_worker/models` | Optional model bundle directory |
 
 Do not commit passwords or private connection strings. Export variables in a
-terminal or use a local untracked shell configuration file.
+terminal or load the provided local template:
+
+```bash
+cp .env.example .env
+set -a
+source .env
+set +a
+```
+
+`.env` is ignored by Git; `.env.example` contains placeholders only. On
+Windows, use the equivalent environment-variable commands in a supported
+macOS or Linux environment such as WSL.
 
 ## One-time installation
 
@@ -67,6 +78,9 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
+The package installation requires internet access. The application tests do
+not require PostgreSQL or Mosquitto; `make e2e` does.
+
 Create the local database once. If the database or role already exists, skip
 the command that creates it:
 
@@ -75,7 +89,8 @@ createdb iotdb
 psql -d iotdb -f db/bootstrap/001_core.sql
 ```
 
-Start the required infrastructure and confirm it is reachable:
+Start the required infrastructure and confirm it is reachable. On macOS with
+Homebrew:
 
 ```bash
 brew services start postgresql@16
@@ -86,6 +101,16 @@ mosquitto_pub -h "${MQTT_BROKER:-localhost}" -t dashboard/health -m ready
 
 If you are not using Homebrew, start PostgreSQL and Mosquitto with your
 platform's service manager instead.
+
+For example, on Linux the service commands are commonly:
+
+```bash
+sudo systemctl start postgresql
+sudo systemctl start mosquitto
+```
+
+Service names vary by distribution. Continue with the same `pg_isready` and
+`mosquitto_pub` checks after starting them.
 
 ## Correct startup order
 

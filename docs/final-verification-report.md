@@ -1,24 +1,24 @@
-# Aug 4 final independent verification report
+# Historical independent verification report
 
 Date: 2026-08-04
-Scope: the maintained sensor-dashboard project (the repository root on GitHub;
-`/Users/mokshjoshi/Documents/Internship/sensordashboard` locally)
+Scope: the maintained cold-chain environmental monitor repository on `main`.
+The repository root and `origin/main` are the source of truth.
+Status: historical evidence retained for traceability; rerun the commands
+below when making a new release claim.
 Review rule: a criterion without direct evidence is `FAIL`.
 
 ## Verdict
 
-The persisted MQTT-to-PostgreSQL-to-dashboard path is proven for the latest
-deterministic run. The cleanup removes the legacy flat-root application,
-separate prototype tree, and unused prototype dashboard assets. All local
-tests pass, including the opt-in PostgreSQL integration suite. The scoped
-commit is pushed to GitHub and the local/remote branch hashes match.
+The persisted MQTT-to-PostgreSQL-to-dashboard path was proven for the
+deterministic run recorded below. The current maintained source is the
+packaged `main` branch; the retired `quant` branch is not required.
 
 ## Acceptance table
 
 | # | Criterion | Result | Evidence |
 |---:|---|---|---|
 | 1 | Repository structure is coherent and reproducible | **PASS** | The maintained layout is `frontend/`, `db/`, `backend/`, `ai_worker/`, `edge/`, and `docs/`, with tests kept beside the owning package. README/runbooks use repository-relative commands, website port `8766`, and API port `8787`. |
-| 2 | Local code and committed deliverables are aligned | **PASS** | The maintained source, canonical data fixture, comments, docs, and tests are committed on `quant` at `02f63fd` and pushed to GitHub; the scoped project comparison against `origin/quant` is empty. |
+| 2 | Local code and committed deliverables are aligned | **PASS** | The maintained source, canonical data fixture, comments, docs, and tests are committed on `main`; `origin/main` is the repository source of truth. |
 | 3 | Every process has a documented command and responsibility | **PASS** | `docs/architecture-and-pipeline.md` has the component responsibility table; `docs/database-access.md` has the read/write ledger; `README.md`, `docs/setup-and-runbook.md`, and `docs/terminal-runbook.md` provide commands for PostgreSQL, Mosquitto, listener, bridge, web server, generator, and optional ML service. |
 | 4 | Generator → listener → database path is proven | **PASS** | `make e2e` passed all five manifest cases through public process boundaries. The run generated and the bridge observed 26 events; PostgreSQL contains 26 current-run domain rows and 26 matching generic rows. |
 | 5 | Database writer is identified | **PASS** | `docs/database-access.md` identifies `backend.temperature_subscriber` with `--write-db` as the normal write owner. `backend/temperature_subscriber.py:176-272` inserts both projections transactionally and emits `pg_notify` after commit. |

@@ -17,6 +17,7 @@ import argparse
 # argparse reads options such as --sensor from the Terminal command.
 import json
 # json turns each simulated reading into a message MQTT can carry.
+import os
 import sys
 # sys lets us print user-friendly failures to stderr.
 import time
@@ -46,9 +47,9 @@ except ImportError:  # pragma: no cover - keeps direct script execution working.
 
 
 # The local Mosquitto broker and topic shared with temperature_subscriber.py.
-MQTT_BROKER = "localhost"
-MQTT_PORT = 1883
-MQTT_TOPIC = "devices/temperature"
+MQTT_BROKER = os.environ.get("MQTT_BROKER", "localhost")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
+MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "devices/temperature")
 
 # The bundled dataset is a reproducible source-variation fixture. It lives in
 # the canonical data directory; it does not provide live event timestamps.
