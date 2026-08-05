@@ -1,0 +1,6 @@
+# Historical internship material is kept locally under one recoverable folder.
+archive/*
+!archive/README.md
+
+# macOS metadata is not project content.
+.DS_Store

@@ -1,8 +1,0 @@
-# Persist source-placement decisions here. References are exact source paths from the Source Registry.
-#
-# [[override]]
-# reference = "/Users/mokshjoshi/Documents/EverythingLife/Internship/IoT_Simulation_Obsidian_Final_Updated/01 Architecture/System Architecture.md"
-# branch = "System & Sensors"
-# note_type = "topic"
-
-version = 1

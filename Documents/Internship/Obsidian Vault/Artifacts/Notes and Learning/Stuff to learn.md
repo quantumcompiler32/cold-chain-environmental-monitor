@@ -1,5 +1,0 @@
-- sentence transformers
-- tensor flow
-- pytorch
-- Using cursor 
-- **learn linux mac is rlly similar**
