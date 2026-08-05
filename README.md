@@ -139,7 +139,12 @@ root with the virtual environment active.
 5. Start the event generator last:
 
    ```bash
-   make run-scenario SENSORS=Pod1 SCENARIO=mixed COUNT=9 INTERVAL_MS=100 SEED=104
+   make run-scenario \
+  SENSORS=ALL \
+  SCENARIO=mixed \
+  COUNT=10 \
+  INTERVAL_MS=100 \
+  SEED=274 \
    ```
 
 Open `http://127.0.0.1:8766/` or
