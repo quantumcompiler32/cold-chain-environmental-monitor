@@ -24,6 +24,7 @@ import json
 import logging
 # os lets the user override database settings with environment variables.
 import os
+import re
 from datetime import date, datetime, time
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -340,6 +341,31 @@ FILTER_COLUMNS = {
 }
 
 
+def normalize_filter_timestamp(value: str) -> str:
+    """Normalize query-string timestamps before strict ISO-8601 parsing.
+
+    A raw ``+00:00`` offset is decoded by ``parse_qs`` as a space when the
+    caller forgot to percent-encode the plus sign. Accept that common URL
+    mistake so date filtering remains compatible with hand-built links and
+    older dashboard clients; correctly encoded timestamps are unchanged.
+    """
+    return re.sub(r" (?P<offset>\d{2}:\d{2})$", r"+\g<offset>", value.strip())
+
+
+def validate_filter_timestamps(filters: dict[str, str]) -> None:
+    """Validate date filters before a request reaches the database layer."""
+    parsed: dict[str, datetime] = {}
+    for query_name in ("start", "end"):
+        value = filters.get(query_name)
+        if value:
+            try:
+                parsed[query_name] = parse_timestamp(value, query_name, assume_utc=False)
+            except ValueError as exc:
+                raise InvalidFilter(str(exc)) from exc
+    if parsed.get("start") and parsed.get("end") and parsed["start"] > parsed["end"]:
+        raise InvalidFilter("start must be earlier than or equal to end")
+
+
 def build_filter_sql(filters: dict[str, str]) -> tuple[str, tuple[Any, ...]]:
     """Turn validated HTTP filters into SQL predicates and parameters."""
     clauses: list[str] = []
@@ -364,7 +390,12 @@ def request_filters(path: str) -> dict[str, str]:
     """Extract the supported filters from a request URL."""
     query = parse_qs(urlparse(path).query)
     supported = set(FILTER_COLUMNS) | {"start", "end"}
-    return {key: values[0] for key, values in query.items() if key in supported and values and values[0]}
+    filters = {}
+    for key, values in query.items():
+        if key in supported and values and values[0]:
+            filters[key] = normalize_filter_timestamp(values[0]) if key in {"start", "end"} else values[0]
+    validate_filter_timestamps(filters)
+    return filters
 
 
 def response_scope(filters: dict[str, str], events: list[dict[str, Any]]) -> dict[str, Any]:

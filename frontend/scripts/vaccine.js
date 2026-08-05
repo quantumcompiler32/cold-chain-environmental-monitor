@@ -21,6 +21,7 @@
   let stopWatching = null;
   let currentEndpoint = '/api/live';
   let responseScope = null;
+  let dataPointCount = 0;
   let activePodButton = null;
   let temperatureUnit = 'C';
   let aggregationInterval = 'hourly';
@@ -165,7 +166,16 @@
   function formatDateTime(value) {
     if (!value) return '—';
     const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? String(value) : new Intl.DateTimeFormat([], { dateStyle: 'medium', timeStyle: 'medium', timeZoneName: 'short', timeZone }).format(parsed);
+    return Number.isNaN(parsed.getTime()) ? String(value) : new Intl.DateTimeFormat([], {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZoneName: 'short',
+      timeZone,
+    }).format(parsed);
   }
 
   function openPodDetails(sensorName) {
@@ -231,7 +241,7 @@
     if (connectionState === 'loading') target.textContent = 'Loading persisted PostgreSQL readings…';
     else if (connectionState === 'error') target.textContent = 'Unable to load persisted readings. Check the PostgreSQL bridge and try again.';
     else if (!events.length) target.textContent = 'No temperature readings match the selected scope.';
-    else target.textContent = `${events.length.toLocaleString()} persisted temperature reading${events.length === 1 ? '' : 's'} loaded.`;
+    else target.textContent = `${dataPointCount.toLocaleString()} persisted data point${dataPointCount === 1 ? '' : 's'} in the selected range.`;
   }
 
   function currentFilters() {
@@ -252,6 +262,7 @@
       (rawEvents, payload) => {
         events = rawEvents.map((event) => data.normalizeEvent(event));
         responseScope = payload?.scope || null;
+        dataPointCount = Number.isFinite(Number(payload?.count)) ? Number(payload.count) : events.length;
         connectionState = events.length ? 'ready' : 'empty';
         populateFilterOptions();
         setBridgeState(true, path.startsWith('/api/live') ? 'Live PostgreSQL connected' : 'Historical PostgreSQL connected');
@@ -259,6 +270,7 @@
       },
       (error) => {
         events = [];
+        dataPointCount = 0;
         connectionState = 'error';
         setBridgeState(false, 'PostgreSQL unavailable');
         render();
@@ -320,8 +332,8 @@
     $('kpiWarmestDetail').textContent = warmest ? `${warmest.sensorName} · ${statusLabel(warmest.status)}` : 'No readings';
     $('kpiColdest').textContent = formatC(coldest?.latestTemperatureC);
     $('kpiColdestDetail').textContent = coldest ? `${coldest.sensorName} · ${statusLabel(coldest.status)}` : 'No readings';
-    $('kpiEvents').textContent = events.length.toLocaleString();
-    $('kpiEventsDetail').textContent = latestEvent ? `Latest recorded ${formatDateTime(latestEvent.event_time || latestEvent.timestamp)}` : 'No readings';
+    $('kpiEvents').textContent = dataPointCount.toLocaleString();
+    $('kpiEventsDetail').textContent = latestEvent ? `Latest recorded ${formatDateTime(latestEvent.event_time || latestEvent.timestamp)}` : 'No readings in selected range';
     $('kpiPeriodAverage').textContent = formatC(periodAverage);
     $('kpiPeriodAverageDetail').textContent = periodAverage == null ? 'No readings in scope' : `${events.length.toLocaleString()} readings in selected period`;
     $('kpiBorderline').textContent = borderline.toLocaleString();

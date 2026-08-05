@@ -128,6 +128,17 @@ class DashboardBridgeTests(unittest.TestCase):
         self.assertEqual(params, ("Pod1", "normal"))
         self.assertEqual(result[0]["operational_status"], "NORMAL")
 
+    def test_date_filters_normalize_url_offsets_and_validate_order(self):
+        filters = bridge.request_filters(
+            "/api/events?start=2026-07-29T11:00:00.000+00:00"
+        )
+        _, params = bridge.build_filter_sql(filters)
+        self.assertEqual(params[0], datetime(2026, 7, 29, 11, 0, tzinfo=timezone.utc))
+        with self.assertRaisesRegex(bridge.InvalidFilter, "earlier"):
+            bridge.request_filters(
+                "/api/events?start=2026-07-29T13:00:00.000Z&end=2026-07-29T11:00:00.000Z"
+            )
+
     def test_analytics_splits_mixed_phases_without_changing_top_level_scenario(self):
         analytics = bridge.aggregate_analytics([
             {"operational_status": "NORMAL", "scenario": "mixed", "scenario_phase": "normal", "severity": "info"},
