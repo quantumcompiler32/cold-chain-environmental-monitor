@@ -6,7 +6,7 @@ Homebrew PostgreSQL 16, Mosquitto, Python 3.12+, and Node.js.
 ## One-time setup
 
 ```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+cd "$(git rev-parse --show-toplevel)"
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt

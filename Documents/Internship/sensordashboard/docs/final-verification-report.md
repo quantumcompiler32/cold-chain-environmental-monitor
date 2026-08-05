@@ -38,7 +38,7 @@ commit is pushed to GitHub and the local/remote branch hashes match.
 Command:
 
 ```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+cd "$(git rev-parse --show-toplevel)"
 make e2e
 ```
 

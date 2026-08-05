@@ -92,7 +92,7 @@ strings are used only on the event wire format and presentation boundaries.
 Install Python dependencies:
 
 ```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+cd "$(git rev-parse --show-toplevel)"
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
@@ -387,7 +387,7 @@ structured 404 explaining that it belongs on port `8766`.
 ## Tests
 
 ```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 node --test web/scripts/vaccine-data.test.js

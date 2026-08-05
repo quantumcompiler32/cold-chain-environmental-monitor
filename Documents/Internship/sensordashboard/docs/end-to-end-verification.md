@@ -3,7 +3,7 @@
 Workstream D's single automated command is:
 
 ```bash
-cd /Users/mokshjoshi/Documents/Internship/sensordashboard
+cd "$(git rev-parse --show-toplevel)"
 make e2e
 ```
 
