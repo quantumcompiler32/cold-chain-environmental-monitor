@@ -228,7 +228,7 @@
 
   function scopeText(payload) {
     const scope = payload?.scope || responseScope;
-    if (!scope) return 'Live · current persisted events';
+    if (!scope) return currentEndpoint.startsWith('/api/live') ? 'Live · waiting for new events' : 'Historical · selected filters';
     const start = scope.effective_start ? formatDateTime(scope.effective_start) : 'beginning';
     const end = scope.effective_end ? formatDateTime(scope.effective_end) : 'now';
     return `${currentEndpoint.startsWith('/api/live') ? 'Live' : 'Historical'} · ${start} → ${end}`;
@@ -238,9 +238,9 @@
     const target = $('analyticsState');
     if (!target) return;
     target.className = `analytics-state ${connectionState}`;
-    if (connectionState === 'loading') target.textContent = 'Loading persisted PostgreSQL readings…';
+    if (connectionState === 'loading') target.textContent = currentEndpoint.startsWith('/api/live') ? 'Waiting for new live events…' : 'Loading persisted PostgreSQL readings…';
     else if (connectionState === 'error') target.textContent = 'Unable to load persisted readings. Check the PostgreSQL bridge and try again.';
-    else if (!events.length) target.textContent = 'No temperature readings match the selected scope.';
+    else if (!events.length) target.textContent = currentEndpoint.startsWith('/api/live') ? 'No live events yet. Start the event generator to see incoming readings.' : 'No temperature readings match the selected scope.';
     else target.textContent = `${dataPointCount.toLocaleString()} persisted data point${dataPointCount === 1 ? '' : 's'} in the selected range.`;
   }
 
@@ -352,7 +352,7 @@
       : 'All stored sensors are in range';
     $('attentionText').textContent = outOfRange.length
       ? names + (outOfRange.length > 3 ? ' and more' : '') + ' require review.'
-      : events.length ? 'The latest persisted readings are within their configured storage ranges.' : 'Waiting for persisted PostgreSQL readings.';
+      : events.length ? 'The latest persisted readings are within their configured storage ranges.' : currentEndpoint.startsWith('/api/live') ? 'Waiting for the next incoming event.' : 'No persisted readings match the selected filters.';
   }
 
   function renderPicker(availableSensors) {

@@ -116,6 +116,15 @@ class DashboardBridgeTests(unittest.TestCase):
         self.assertIn("ORDER BY event_time DESC, event_id DESC", query)
         self.assertIn("LIMIT 100", query)
 
+    def test_live_snapshot_starts_empty(self):
+        snapshot = bridge.live_snapshot_payload()
+
+        self.assertEqual(snapshot["events"], [])
+        self.assertEqual(snapshot["count"], 0)
+        self.assertTrue(snapshot["live_monitoring"])
+        self.assertIsNone(snapshot["scope"]["effective_start"])
+        self.assertIsNone(snapshot["scope"]["effective_end"])
+
     def test_filters_are_parameterized_and_include_scope(self):
         connection = FakeConnection([database_row()])
         reader = bridge.DatabaseReader(connect_factory=lambda **_: connection, settings={})

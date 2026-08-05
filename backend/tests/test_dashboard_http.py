@@ -13,11 +13,16 @@ class StubReader:
     def __init__(self, *, ready=True):
         self.ready = ready
         self.check_calls = 0
+        self.fetch_events_calls = 0
 
     def check(self):
         self.check_calls += 1
         if not self.ready:
             raise DatabaseUnavailable("database is offline")
+
+    def fetch_events(self, *_args, **_kwargs):
+        self.fetch_events_calls += 1
+        raise AssertionError("live endpoint must not read historical rows")
 
 
 class DashboardHttpIntegrationTests(unittest.TestCase):
@@ -81,6 +86,15 @@ class DashboardHttpIntegrationTests(unittest.TestCase):
         self.assertEqual(payload["path"], "/pages/domain-vaccine.html")
         self.assertIn("website port", payload["hint"])
         self.assertEqual(response.getheader("X-Request-ID"), "http-test-1")
+
+    def test_live_endpoint_starts_empty_without_reading_historical_rows(self):
+        response, payload = self.request("GET", "/api/live")
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload["events"], [])
+        self.assertEqual(payload["count"], 0)
+        self.assertTrue(payload["live_monitoring"])
+        self.assertEqual(self.reader.fetch_events_calls, 0)
 
     def test_mutation_methods_are_rejected_by_read_only_bridge(self):
         response, payload = self.request("POST", "/api/events")

@@ -164,16 +164,12 @@ make demo-all COUNT=10 INTERVAL_MS=200 OUTPUT_MODE=summary
 The listener is the normal database writer. Direct generator database writes
 are not part of the normal startup order; `--write-db` belongs to the listener.
 
-## Database reset and verification
+## Database verification
 
-Reset is destructive and guarded. It is only for a local demo database:
-
-```bash
-APP_ENV=demo RESET_CONFIRM=YES make reset-demo
-```
-
-The reset recreates the application tables. The non-destructive verification
-commands prove the current schema, latest events, and projection parity:
+This README intentionally contains no command that drops, truncates, deletes,
+or recreates PostgreSQL data. Keep existing rows and use the read-only
+verification commands below to inspect the current schema, latest events, and
+projection parity:
 
 ```bash
 make verify-fast
@@ -229,10 +225,13 @@ make stop-demo
 ```
 
 Restart by starting PostgreSQL and Mosquitto, running the listener, starting
-the bridge, serving `frontend/`, and launching the generator last. Use
-`make reset-dashboard` to clear only the bridge's in-memory view without
-deleting PostgreSQL rows. Use `make reset-demo` only when a clean demo database
-is explicitly required.
+the bridge, serving `frontend/`, and launching the generator last.
+
+The dashboard Live view starts empty and listens only for events committed
+after the view is opened. Use the time presets, date fields, and other filters
+to query persisted history; clicking **Apply filters** refreshes the dashboard
+from those selected PostgreSQL rows. No database reset is needed for normal
+dashboard use.
 
 ## Documentation
 

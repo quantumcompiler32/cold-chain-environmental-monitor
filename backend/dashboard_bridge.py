@@ -44,7 +44,6 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
 EVENT_NOTIFY_CHANNEL = "cold_chain_events"
 RESET_NOTIFY_CHANNEL = "cold_chain_reset"
-LIVE_SNAPSHOT_LIMIT = 2000
 LOGGER = logging.getLogger("dashboard_bridge")
 
 # These are the PostgreSQL column names selected by the adapter. Keep the
@@ -407,6 +406,17 @@ def response_scope(filters: dict[str, str], events: list[dict[str, Any]]) -> dic
     }
 
 
+def live_snapshot_payload() -> dict[str, Any]:
+    """Describe the empty state before the next committed event arrives."""
+    return {
+        "events": [],
+        "count": 0,
+        "source": "postgresql",
+        "live_monitoring": True,
+        "scope": response_scope({}, []),
+    }
+
+
 def aggregate_analytics(events: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
     """Count observed pod states, top-level scenarios, phases, and severity."""
     status_counts: dict[str, int] = {}
@@ -492,17 +502,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     cursor.execute(f"LISTEN {RESET_NOTIFY_CHANNEL}")
                 connection.commit()
 
-                # LISTEN is active before the snapshot is read. Any event
-                # committed during the snapshot is therefore queued and is
-                # delivered after the browser receives its initial state.
-                snapshot = self.reader.fetch_latest_events(limit=LIVE_SNAPSHOT_LIMIT)
-                self._sse("snapshot", {
-                    "events": list(reversed(snapshot)),
-                    "count": len(snapshot),
-                    "source": "postgresql",
-                    "live_monitoring": True,
-                    "scope": response_scope({}, snapshot),
-                })
+                # Live mode is a forward-only view. Do not preload historical
+                # rows; only notifications committed after this connection is
+                # established belong in the live stream.
+                self._sse("snapshot", live_snapshot_payload())
 
                 while True:
                     notifications = connection.notifies(timeout=15)
@@ -596,13 +599,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
             try:
                 latest = path == "/api/verification/latest-events"
                 live = path == "/api/live"
-                events = self.reader.fetch_latest_events(filters) if latest else self.reader.fetch_events(filters, latest_first=live, limit=200 if live else None)
+                if live:
+                    self._json(200, {**live_snapshot_payload(), "latest_first": False})
+                    return
+                events = self.reader.fetch_latest_events(filters) if latest else self.reader.fetch_events(filters)
                 self._json(200, {
                     "events": events,
                     "count": len(events),
                     "source": "postgresql",
-                    "latest_first": latest or live,
-                    "live_monitoring": live,
+                    "latest_first": latest,
+                    "live_monitoring": False,
                     "scope": response_scope(filters, events),
                 })
             except DatabaseUnavailable as exc:
