@@ -1,7 +1,8 @@
 # Aug 4 final independent verification report
 
 Date: 2026-08-04
-Scope: `/Users/mokshjoshi/Documents/Internship/sensordashboard`
+Scope: the maintained sensor-dashboard project (the repository root on GitHub;
+`/Users/mokshjoshi/Documents/Internship/sensordashboard` locally)
 Review rule: a criterion without direct evidence is `FAIL`.
 
 ## Verdict
@@ -16,8 +17,8 @@ commit is pushed to GitHub and the local/remote branch hashes match.
 
 | # | Criterion | Result | Evidence |
 |---:|---|---|---|
-| 1 | Repository structure is coherent and reproducible | **PASS** | The maintained layout is `services/`, `scripts/`, `tests/`, `database/`, `web/`, `data/`, and `docs/`. The old flat tree, `archive/`, and `phase1-stitch-ui/` are removed. README/runbooks consistently use website port `8766` and API port `8787`; local and `origin/quant` hashes match. |
-| 2 | Local code and committed deliverables are aligned | **PASS** | Commit `4c9771a` contains the canonical data fixture, maintained sources, comments, docs, tests, and legacy deletions; the scoped project path is clean and `git diff HEAD origin/quant -- Documents/Internship/sensordashboard` is empty. |
+| 1 | Repository structure is coherent and reproducible | **PASS** | The maintained layout is `services/`, `scripts/`, `tests/`, `database/`, `web/`, `data/`, and `docs/`. The old flat tree, `archive/`, and `phase1-stitch-ui/` are removed from the maintained project. README/runbooks use repository-relative commands, website port `8766`, and API port `8787`. |
+| 2 | Local code and committed deliverables are aligned | **PASS** | The maintained source, canonical data fixture, comments, docs, and tests are committed on `quant` at `02f63fd` and pushed to GitHub; the scoped project comparison against `origin/quant` is empty. |
 | 3 | Every process has a documented command and responsibility | **PASS** | `docs/architecture-and-pipeline.md` has the component responsibility table; `docs/database-access.md` has the read/write ledger; `README.md`, `docs/setup-and-runbook.md`, and `docs/terminal-runbook.md` provide commands for PostgreSQL, Mosquitto, listener, bridge, web server, generator, and optional ML service. |
 | 4 | Generator → listener → database path is proven | **PASS** | `make e2e` passed all five manifest cases through public process boundaries. The run generated and the bridge observed 26 events; PostgreSQL contains 26 current-run domain rows and 26 matching generic rows. |
 | 5 | Database writer is identified | **PASS** | `docs/database-access.md` identifies `services.temperature_subscriber` with `--write-db` as the normal write owner. `services/temperature_subscriber.py:176-272` inserts both projections transactionally and emits `pg_notify` after commit. |
