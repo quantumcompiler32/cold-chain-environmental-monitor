@@ -2,5 +2,9 @@
 archive/*
 !archive/README.md
 
+# Local Codex/Matt skill installation is workspace tooling, not project source.
+.agents/
+skills-lock.json
+
 # macOS metadata is not project content.
 .DS_Store

@@ -119,6 +119,60 @@ Every canonical note has consistent metadata and a short plain-language summary.
 
 ### Status language
 
+### Vaccine cold-chain language
+
+**Storage unit**: A monitored refrigerator or freezer that holds vaccine stock and has one or more temperature sensors.
+
+**Temperature event**: One timestamped sensor reading carrying device, sensor, vaccine profile, scenario, temperature, and status provenance.
+
+**Pod**: A named simulated sensor channel, currently represented by `sensor_name`; a Pod is not itself a storage unit.
+
+**Excursion**: A sustained temperature condition outside the selected vaccine profile's acceptable range that requires review.
+
+**Affected stock**: Vaccine inventory linked to a storage unit during an excursion; it is not automatically considered unusable.
+
+**Disposition**: The review state of affected stock: `Pending review`, `Quarantined`, or `Released`.
+
+**Borderline reading**: A temperature reading whose sensor-uncertainty interval overlaps an acceptable storage boundary; it is flagged for context without changing the raw event status.
+
+**Pod event scope**: The primary analytics scope is the paper-derived Pod/package temperature channels (`Pod1`–`Pod20`); CO₂, O₂, and dry-ice weight measurements are outside this dashboard scope.
+
+**Demo simulation**: A clearly labeled synthetic scenario used to demonstrate the dashboard without implying live clinical monitoring or real inventory decisions.
+
+**Scenario controls**: `normal` is the safe baseline and bounds translated source variation to the selected vaccine profile's acceptable range; `outlier` creates brief cold or warm boundary crossings; `failure` creates a sustained warm excursion; and `recovery` returns from a failure toward the profile target. These controls are test conditions, not paper terminology.
+
+**Operational monitoring view**: The primary dashboard view for live temperature events, excursions, and failure scenarios, organized around what an operator or supervisor needs to investigate next.
+
+**Summary/Impact view**: A secondary dashboard area for management metrics, cost mechanisms, preventable opportunities, and the real-world value of the monitoring system; it does not replace operational monitoring.
+
+**Baseline dashboard**: The existing dashboard experience and behavior preserved as a runnable reference while a UI update is implemented.
+
+**Design reference**: The supplied Stitch screen set that defines the intended visual structure, labels, hierarchy, and interaction intent for a UI update; it is not itself the source of truth for operational data.
+
+**Parallel dashboard version**: A separately reachable dashboard experience developed alongside the baseline dashboard so the UI update can replace placeholder content with current factual data without removing or disabling existing features.
+
+**Phase 1 UI update**: The first implementation of the supplied design reference, covering Operations, Raw Events, and Interpretation/Methodology while deferring the Summary/Impact view to a later phase.
+
+**Local integrated prototype**: A locally runnable version that combines the design reference with current data and behavior before it is connected to or replaces any baseline dashboard entry point.
+
+**Live local data mode**: The prototype's read-only display mode backed by the local PostgreSQL bridge; when the bridge is unavailable, the UI reports that state instead of substituting invented values.
+
+**ML-assisted analysis**: Model-generated context that helps a user inspect temperature behavior or prioritize review; it does not automatically declare vaccine stock safe, unsafe, released, or quarantined.
+
+**Permitted ML algorithms**: The Phase 1 ML scope is limited to linear regression for temperature direction/value, logistic regression for out-of-range probability, and k-means clustering for Pod behavior groups; any displayed model result must identify the algorithm and its data basis.
+
+**Model readiness**: The condition that an ML result has enough relevant data and a visible quality measure to be shown as decision support; otherwise the result is marked insufficient or low confidence.
+
+**ML interpretation view**: The secondary dashboard view where explainable model results and their data basis help a reviewer investigate temperature behavior without replacing operational status or human disposition review.
+
+**Model run**: An explicit or initial analysis execution over the selected local event data; it is not repeated on every telemetry refresh.
+
+**Inference request**: One submitted Temperature event, optionally accompanied by recent context events, sent for ML-assisted analysis; it does not create or alter a stored event.
+
+**Inference service**: The local read-only boundary that loads saved model artifacts and returns advisory ML-assisted analysis for an inference request.
+
+**Working control**: A visible prototype control with a defined action and observable result; decorative or non-functional buttons are not part of the Phase 1 UI update.
+
 **Inbox**:
 New or uncategorized material awaiting classification.
 
@@ -159,6 +213,8 @@ Material retained for reference but removed from default active views.
 - Categorization rules are versioned and independently editable so the system can scale without code changes.
 - Source-registry identity, reference, dates, hashes, authority, coverage, sensitivity, sync status, and promotion status are managed; personal notes and explicit overrides are protected.
 - Normal use should require only a clear dashboard and a small number of plain-language actions; advanced system details remain secondary.
+- Vaccine cold-chain operational monitoring is the dashboard's primary focus; executive and cost-related insights belong in a secondary Summary/Impact view.
+- The primary analytics view uses paper-derived Pod/package temperatures and does not treat CO₂, O₂, or dry-ice weight as dashboard events.
 - `Refresh` updates changed material locally, `Review` handles ambiguity and decisions, and `Rebuild` runs a larger approved organization pass.
 - Rebuild changes are not applied until the preview is accepted; the preview can be narrowed or canceled.
 - Branch landing pages are navigation hubs, not inventories that force every artifact into a deep folder tree.
@@ -167,6 +223,7 @@ Material retained for reference but removed from default active views.
 - The graph favors clear hub-and-spoke navigation and meaningful relationships over link density.
 - Project and branch indexes are navigation hubs; evidence links must explain or support a note.
 - When a connected source changes, canonical notes are updated to the newest known version rather than accumulating historical summaries.
+- ML-assisted analysis is served from a separately started, read-only local inference service; model training is an explicit operation and inference never mutates stored events or disposition.
 - The seven branches are shared across projects; `project` metadata and project indexes provide project-specific views.
 - ByteSmart is the current visible project identity. Bitwise may appear as source or provenance metadata, but Bitwise material is organized inside ByteSmart and does not create a separate project, dashboard, or branch.
 - Future projects use their own project metadata, source roots, rules, and project index while sharing the same seven branch model and local automation.

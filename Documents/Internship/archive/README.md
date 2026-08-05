@@ -11,6 +11,7 @@ run `sensordashboard/`.
 | `hatch-pet-*`, `knowledge-ops-vault`, `mattpocock-skills` | Separate tools, skills, or projects |
 | `automation/`, `outputs/`, `reference/`, `lessons/`, `learning-records/`, `assets/` | Supporting or generated internship material |
 | `Obsidian Vault/` | Archived notes |
+| `vaccine-extras-archive-2026-08-03/` | Earlier vaccine dashboard, database, edge, frontend, and ML materials |
 
 The archive is intentionally recoverable. Do not move files back into the
 dashboard unless a dashboard command or its README explicitly requires them.
