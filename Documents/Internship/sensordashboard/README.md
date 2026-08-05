@@ -46,6 +46,28 @@ CSV guidance → event generator → Mosquitto MQTT → listener
 - A demo reset publishes a reset notification so open dashboard pages clear
   their in-memory analytics before the next isolated scenario.
 
+## Where to find everything
+
+Use this short map instead of searching the whole project:
+
+| Need | Location |
+| --- | --- |
+| Install, start, stop, and restart | `README.md` and `docs/setup-and-runbook.md` |
+| Architecture and event flow | `docs/architecture-and-pipeline.md` |
+| Database ownership and queries | `docs/database-access.md` and `database/` |
+| Event fields and status meanings | `docs/data-dictionary.md` |
+| Verification commands and evidence | `docs/final-verification-report.md` and `docs/end-to-end-verification.md` |
+| Troubleshooting | `docs/troubleshooting.md` |
+| Executable services | `services/` |
+| Verification/reset commands | `scripts/` |
+| Automated tests | `tests/` |
+| Browser dashboard | `web/` |
+
+The only intentionally local-only folder is `.venv/`, the Python environment.
+`models/`, `test-reports/`, and Python cache folders are generated on demand
+and are not part of the source tree; they may reappear after training, E2E
+verification, or test runs.
+
 ## Timestamp fields
 
 | Field | Meaning |
