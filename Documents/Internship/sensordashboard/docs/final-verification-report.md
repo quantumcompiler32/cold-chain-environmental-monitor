@@ -9,16 +9,15 @@ Review rule: a criterion without direct evidence is `FAIL`.
 The persisted MQTT-to-PostgreSQL-to-dashboard path is proven for the latest
 deterministic run. The cleanup removes the legacy flat-root application,
 separate prototype tree, and unused prototype dashboard assets. All local
-tests pass, including the opt-in PostgreSQL integration suite. Publication is
-still pending because the parent worktree has not yet received the scoped
-commit and the GitHub CLI token is invalid.
+tests pass, including the opt-in PostgreSQL integration suite. The scoped
+commit is pushed to GitHub and the local/remote branch hashes match.
 
 ## Acceptance table
 
 | # | Criterion | Result | Evidence |
 |---:|---|---|---|
-| 1 | Repository structure is coherent and reproducible | **PASS locally / PENDING remote** | The maintained layout is `services/`, `scripts/`, `tests/`, `database/`, `web/`, `data/`, and `docs/`. The old flat tree, `archive/`, and `phase1-stitch-ui/` are removed locally. README/runbooks consistently use website port `8766` and API port `8787`; GitHub identity remains unverified pending authentication. |
-| 2 | Local code and committed deliverables are aligned | **PASS locally / PENDING remote** | Scoped commit `bd5d137` contains the canonical data fixture, maintained sources, comments, docs, tests, and legacy deletions; the scoped project path is clean after the commit. Remote identity is pending push verification. |
+| 1 | Repository structure is coherent and reproducible | **PASS** | The maintained layout is `services/`, `scripts/`, `tests/`, `database/`, `web/`, `data/`, and `docs/`. The old flat tree, `archive/`, and `phase1-stitch-ui/` are removed. README/runbooks consistently use website port `8766` and API port `8787`; local and `origin/quant` hashes match. |
+| 2 | Local code and committed deliverables are aligned | **PASS** | Commit `4c9771a` contains the canonical data fixture, maintained sources, comments, docs, tests, and legacy deletions; the scoped project path is clean and `git diff HEAD origin/quant -- Documents/Internship/sensordashboard` is empty. |
 | 3 | Every process has a documented command and responsibility | **PASS** | `docs/architecture-and-pipeline.md` has the component responsibility table; `docs/database-access.md` has the read/write ledger; `README.md`, `docs/setup-and-runbook.md`, and `docs/terminal-runbook.md` provide commands for PostgreSQL, Mosquitto, listener, bridge, web server, generator, and optional ML service. |
 | 4 | Generator → listener → database path is proven | **PASS** | `make e2e` passed all five manifest cases through public process boundaries. The run generated and the bridge observed 26 events; PostgreSQL contains 26 current-run domain rows and 26 matching generic rows. |
 | 5 | Database writer is identified | **PASS** | `docs/database-access.md` identifies `services.temperature_subscriber` with `--write-db` as the normal write owner. `services/temperature_subscriber.py:176-272` inserts both projections transactionally and emits `pg_notify` after commit. |
@@ -135,11 +134,9 @@ make e2e                                       5 cases passed, status=passed
 
 ## Unresolved risks and required follow-up
 
-1. Stage and commit only `Documents/Internship/sensordashboard`, then verify
-   the scoped committed tree is clean.
-2. Re-authenticate GitHub CLI with `gh auth login -h github.com` and push the
-   scoped commit; remote identity is not currently verifiable because
-   `gh auth status` reports an invalid token.
-3. Homebrew's service wrapper previously failed with an internal
+1. GitHub recommends Git LFS for the 60.98 MB CSV fixture because it exceeds
+   the recommended 50 MB file size; the current remote branch is valid and the
+   fixture is intentionally retained for deterministic local replay.
+2. Homebrew's service wrapper previously failed with an internal
    `stop_timeout` error; direct local PostgreSQL/Mosquitto startup remains the
    documented environment fallback if that wrapper recurs.
