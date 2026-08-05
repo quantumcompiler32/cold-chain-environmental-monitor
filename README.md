@@ -164,8 +164,12 @@ all derived from that simulated clock, so the dashboard can show a July run
 while you execute it today. This is intended for local demos and tests:
 
 ```bash
-make run-scenario SENSORS=Pod1 SCENARIO=mixed COUNT=9 INTERVAL_MS=100 SEED=104 START_TIME=2026-07-15T09:00:00
-```
+make run-scenario \
+  SENSORS=ALL \
+  SCENARIO=mixed \
+  COUNT=10 \
+  INTERVAL_MS=100 \
+  SEED=274 \```
 
 For exact cross-timezone reproduction, include an offset such as
 `START_TIME=2026-07-15T09:00:00-07:00`; otherwise each machine interprets the
