@@ -2,8 +2,8 @@
 
 The browser-only dashboard lives here. `index.html` is the landing page;
 `pages/` contains the dashboard views, `scripts/` contains read-only API and
-analytics clients, `styles/` contains CSS, and `tests/` contains Node tests for
-filters, CSV export, timestamps, aggregation, and navigation.
+analytics clients, and `styles/` contains CSS. The maintained vaccine pages
+read committed events through the backend dashboard bridge.
 
 Serve this directory from the project root with:
 

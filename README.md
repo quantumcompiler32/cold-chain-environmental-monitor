@@ -19,7 +19,6 @@ firmware and calibrated sensor collection remain planned work.
 - macOS or Linux with Python 3.12+. These are the supported laptop platforms.
 - PostgreSQL 16 or a compatible PostgreSQL installation.
 - Mosquitto MQTT broker.
-- Node.js 18+ for frontend tests.
 - `make` for the command shortcuts.
 - Optional: Homebrew on macOS and PlatformIO for future Arduino firmware.
 
@@ -27,12 +26,12 @@ firmware and calibrated sensor collection remain planned work.
 
 | Folder | Responsibility |
 |---|---|
-| `frontend/` | HTML, JavaScript, CSS, frontend tests, and browser assets |
-| `db/` | PostgreSQL schema, migrations, reset/verification scripts, SQL, and database tests |
-| `backend/` | Event generator, MQTT subscriber/database writer, dashboard bridge, E2E verifier, and backend tests |
+| `frontend/` | HTML, JavaScript, CSS, and browser assets |
+| `db/` | PostgreSQL schema, migrations, reset scripts, and SQL |
+| `backend/` | Event generator, MQTT subscriber/database writer, dashboard bridge, and E2E verifier |
 | `ai_worker/` | Optional model trainer, inference service, training CSV, model artifacts, and ML tests |
 | `edge/` | Arduino/sensor reference images and hardware notes |
-| `docs/` | Architecture, runbook, verification report, presentation, dataset, and research material |
+| `docs/` | Architecture, runbooks, presentation, datasets, lessons, and research material |
 
 The package intentionally contains only this project's dashboard and related
 implementation files. The original sensor-dashboard archive and unrelated
@@ -53,24 +52,22 @@ entry points are:
 The frontend reads through `backend/dashboard_bridge.py` on port `8787` and
 does not write directly to PostgreSQL or MQTT. Its static files are served on
 port `8766`. The bridge provides read-only API and server-sent-event streams
-for committed records. Frontend tests cover navigation, aggregation,
-filtering, CSV export, timestamps, bridge behavior, and inference rendering.
+for committed records.
 
 ## Complete project contents
 
-- `frontend/` contains the dashboard HTML, JavaScript, CSS, browser assets,
-  and frontend tests.
-- `db/` contains PostgreSQL bootstrap schema, migrations, guarded reset and
-  verification scripts, sample-data helpers, and database tests.
+- `frontend/` contains the dashboard HTML, JavaScript, CSS, and browser assets.
+- `db/` contains PostgreSQL bootstrap schema, migrations, guarded reset tools,
+  and SQL resources.
 - `backend/` contains the deterministic event generator, MQTT subscriber and
-  database writer, dashboard bridge, event contracts, domain rules, and
-  backend tests.
+  database writer, dashboard bridge, event contracts, domain rules, and the
+  end-to-end verifier.
 - `ai_worker/` contains training and inference code, the canonical training
-  CSV, eight Colab notebooks, four saved model artifacts, and ML tests. The
+  CSV, seven Colab notebooks, four saved model artifacts, and ML tests. The
   downloaded notebooks are `Combined notebook.ipynb`, `ML questions Ultralow
   Vaccine Distribution Data.ipynb`, `algorithms.ipynb`,
   `byteSmart_Ultralow_ML_Questions.ipynb`, `Testing Inference.ipynb`,
-  `Training.ipynb`, `iot_data_analysis.ipynb`, and `Kaggle.ipynb`.
+  `Training.ipynb`, and `iot_data_analysis.ipynb`.
 - `edge/` contains the README and reference images for the Arduino UNO R4
   WiFi, UNO R4 Minima, DHT22, BMP280, and AHT20. No completed Arduino sketch
   is claimed as physical validation.
@@ -107,17 +104,15 @@ the local demo:
 | `ML_MODEL_DIR` | `ai_worker/models` | Optional model bundle directory |
 
 Do not commit passwords or private connection strings. Export variables in a
-terminal or load the provided local template:
+terminal before starting the services, for example:
 
 ```bash
-cp .env.example .env
-set -a
-source .env
-set +a
+export POSTGRES_HOST=localhost
+export POSTGRES_DB=iotdb
+export MQTT_BROKER=localhost
 ```
 
-`.env` is ignored by Git; `.env.example` contains placeholders only. On
-Windows, use the equivalent environment-variable commands in a supported
+On Windows, use the equivalent environment-variable commands in a supported
 macOS or Linux environment such as WSL.
 
 ## One-time installation
@@ -131,8 +126,8 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-The package installation requires internet access. The application tests do
-not require PostgreSQL or Mosquitto; `make e2e` does.
+The package installation requires internet access. The end-to-end verifier
+requires PostgreSQL and Mosquitto.
 
 Create the local database once. If the database or role already exists, skip
 the command that creates it:
@@ -236,7 +231,7 @@ For a local replay, pass an ISO-8601 `START_TIME`. The timezone offset is
 optional; when omitted, the timestamp uses the computer's local timezone. Each
 round advances by `INTERVAL_MS`; the event, receipt, and storage timestamps are
 all derived from that simulated clock, so the dashboard can show a July run
-while you execute it today. This is intended for local demos and tests:
+while you execute it today. This is intended for local demos and replays:
 
 ```bash
 make run-scenario \

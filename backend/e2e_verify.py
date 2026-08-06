@@ -20,7 +20,7 @@ from urllib.request import Request, urlopen
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MANIFEST = PROJECT_ROOT / "backend" / "tests" / "e2e_scenarios.json"
+DEFAULT_MANIFEST = PROJECT_ROOT / "backend" / "e2e_scenarios.json"
 DEFAULT_REPORT_DIR = PROJECT_ROOT / "test-reports"
 DEFAULT_BRIDGE_PORT = 0
 

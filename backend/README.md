@@ -1,8 +1,9 @@
 # Backend
 
 The backend owns event generation, MQTT subscription, PostgreSQL persistence,
-the read-only dashboard bridge, and non-ML backend tests. The normal database
-writer is `temperature_subscriber.py` when started with `--write-db`.
+the read-only dashboard bridge, and end-to-end pipeline verification. The
+normal database writer is `temperature_subscriber.py` when started with
+`--write-db`.
 
 Run modules from the project root so Python resolves the `backend` package:
 
@@ -25,3 +26,4 @@ python3 -m backend.dashboard_bridge
 | `dashboard_bridge.py` | Provides read-only HTTP APIs, CSV export, and live SSE updates from PostgreSQL. |
 | `terminal_output.py` | Formats readable service and event messages for the terminal. |
 | `e2e_verify.py` | Verifies the complete generator-to-dashboard pipeline. |
+| `e2e_scenarios.json` | Defines the scenarios and expected results for E2E verification. |
