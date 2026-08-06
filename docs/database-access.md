@@ -28,8 +28,6 @@ PostgreSQL. The browser never receives database credentials.
 | `backend.temperature_event_generator` | Bundled CSV guidance | None by default; both projections only with explicit `--write-db` | Default mode publishes to MQTT. Direct mode is mutually exclusive with MQTT publishing so one event is not written twice. |
 | `backend.temperature_subscriber` | Table existence and domain count at startup | `telemetry_logs`, `vaccine_temperature_events`, and transactional `pg_notify` | `--write-db` is the normal production/demo write owner. Validation happens before the transaction. |
 | `backend.dashboard_bridge.DatabaseReader` | `vaccine_temperature_events`; schema readiness query; PostgreSQL `LISTEN` notifications | None | Every data connection uses `SET TRANSACTION READ ONLY`. Notifications trigger reads; they do not contain the event record. |
-| `db/verify_database.py` | Both application tables and projection parity | None | Fast, read-only readiness/parity probe. |
-| `db/verify_persistence.py` | `vaccine_temperature_events` | None | Detailed latest-event and lifecycle-timestamp report. |
 | `db/reset_demo.py` | Environment and target settings | Drops/recreates application tables and sends reset notification | Destructive and guarded by local-host, non-production, and explicit-confirmation checks. |
 | `db/reset_dashboard.py` | Target settings | Transactional `pg_notify` on the dashboard-reset channel only | Clears open dashboard memory; it does not delete or rewrite event rows. |
 | `ai_worker.ml_inference` | Model artifacts supplied on disk | None | Inference is advisory and does not read or mutate PostgreSQL. |

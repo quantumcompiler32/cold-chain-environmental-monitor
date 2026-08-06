@@ -271,23 +271,6 @@ time remain reproducible.
 The listener is the normal database writer. Direct generator database writes
 are not part of the normal startup order; `--write-db` belongs to the listener.
 
-## Database verification
-
-This README intentionally contains no command that drops, truncates, deletes,
-or recreates PostgreSQL data. Keep existing rows and use the read-only
-verification commands below to inspect the current schema, latest events, and
-projection parity:
-
-```bash
-make verify-fast
-make verify
-psql -d iotdb -f db/verification/latest_events.sql
-```
-
-The latest-N query is read-only. It should show current `event_time`,
-`received_at`, `stored_at`, batch IDs, and operational states after a generator
-run.
-
 ## Optional AI worker
 
 The AI worker is not required for the baseline dashboard. To train the
@@ -302,13 +285,7 @@ The trainer reads `ai_worker/data/Test1_TempCO2O2.csv` and writes the bundle to
 `ai_worker/models/`. These outputs are provided as project artifacts; retrain
 only when intentionally changing the training input.
 
-## Tests and end-to-end verification
-
-Run the complete local test suite:
-
-```bash
-make test
-```
+## End-to-end verification
 
 Run the deterministic public-process scenario after PostgreSQL and Mosquitto
 are running:

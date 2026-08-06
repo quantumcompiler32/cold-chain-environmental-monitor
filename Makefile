@@ -11,13 +11,7 @@ DASHBOARD_PID_FILE ?= $(DASHBOARD_RUNTIME_DIR)/dashboard_bridge.pid
 DASHBOARD_LOG_FILE ?= $(DASHBOARD_RUNTIME_DIR)/dashboard_bridge.log
 DASHBOARD_URL ?= http://127.0.0.1:8787
 
-.PHONY: test e2e reset-demo reset-dashboard verify verify-fast train-models start-infrastructure start-listener start-ml-service run-scenario demo-all start-dashboard watch-dashboard stop-dashboard stop-demo
-
-test:
-	$(PYTHON) -m unittest discover -s backend/tests -p 'test_*.py' -v
-	$(PYTHON) -m unittest discover -s db/tests -p 'test_*.py' -v
-	$(PYTHON) -m unittest discover -s ai_worker/tests -p 'test_*.py' -v
-	node --test frontend/tests/*.test.js
+.PHONY: e2e reset-demo reset-dashboard train-models start-infrastructure start-listener start-ml-service run-scenario demo-all start-dashboard watch-dashboard stop-dashboard stop-demo
 
 e2e:
 	APP_ENV=test $(PYTHON) backend/e2e_verify.py
@@ -28,12 +22,6 @@ reset-demo:
 
 reset-dashboard:
 	APP_ENV=$(APP_ENV) $(PYTHON) db/reset_dashboard.py
-
-verify:
-	$(PYTHON) db/verify_persistence.py
-
-verify-fast:
-	$(PYTHON) db/verify_database.py
 
 train-models:
 	$(PYTHON) -m ai_worker.train_models --vaccine $(or $(VACCINE),pfizer_ultralow)

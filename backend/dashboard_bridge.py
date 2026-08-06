@@ -340,6 +340,7 @@ class DatabaseReader:
             writer.writerow([event.get(column, "") for column in CSV_COLUMNS])
         return output.getvalue()
 
+# Maps filter names to database column names.
 FILTER_COLUMNS = {
     "pod": "sensor_name",
     "vaccine": "vaccine_type",

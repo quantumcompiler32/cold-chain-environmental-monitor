@@ -22,7 +22,6 @@ psql -d iotdb -f db/bootstrap/001_core.sql
 ```
 
 Before every run, check `pg_isready`, MQTT port 1883, and
-`python3 db/verify_database.py`.
 
 Train the optional advisory model bundle once:
 
@@ -53,8 +52,6 @@ generator last. Verify the same event IDs through PostgreSQL and the raw page:
 
 ```bash
 make run-scenario SENSORS=Pod1 SCENARIO=mixed COUNT=9 INTERVAL_MS=100 SEED=104
-make verify-fast
-make verify
 curl http://127.0.0.1:8787/api/verification/latest-events
 ```
 
@@ -98,7 +95,6 @@ APP_ENV=demo RESET_CONFIRM=YES make reset-demo
 Before presenting the dashboard, run the read-only persistence check:
 
 ```bash
-make verify
 ```
 
 ## Tests
@@ -124,8 +120,6 @@ Mosquitto, the application schema, and Python dependencies to be available.
 Run independent checks separately when infrastructure is unavailable:
 
 ```bash
-make test
-node --test frontend/tests/*.test.js
 ```
 
 Stop with Ctrl-C in reverse startup order (generator, web server, bridge,

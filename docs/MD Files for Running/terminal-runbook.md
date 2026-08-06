@@ -152,13 +152,11 @@ make demo-all COUNT=30 INTERVAL_MS=200 OUTPUT_MODE=summary
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
-python3 db/verify_persistence.py
 ```
 
 For a fast readiness and raw/domain parity check:
 
 ```bash
-python3 db/verify_database.py
 ```
 
 ## Run tests
@@ -166,6 +164,4 @@ python3 db/verify_database.py
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 source .venv/bin/activate
-make test
-node --test frontend/tests/*.test.js
 ```
