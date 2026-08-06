@@ -1,9 +1,11 @@
 # Source data
 
-`Test1_TempCO2O2.csv` is a bundled synthetic/source-variation fixture used by
-the event generator and optional model-training command.
+`Test1_TempCO2O2.csv` is the canonical local copy of the Test 1 CSV used by
+the provided Colab-derived analysis, optional model-training command, and
+event generator.
 
 It is not a historical event store. The generator converts its Fahrenheit Pod
 readings to Celsius, applies the selected scenario, and assigns a new current
 UTC `event_time` to every generated event. PostgreSQL is the source of truth
-for persisted events.
+for persisted events. The CSV is an ultralow-temperature refrigeration
+experiment dataset, not a GARDASIL 9 pharmacy-refrigerator dataset.

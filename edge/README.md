@@ -12,21 +12,17 @@ not required to run PostgreSQL, MQTT, the dashboard bridge, or the frontend.
 - DHT22: temperature/humidity sensor reference.
 - BMP280 and AHT20: I2C comparison-sensor reference material.
 
-`images/` contains the available board, sensor, wiring, and architecture
-reference images. `tools/serial_diagnostics.py` lists serial ports and streams
-diagnostic output from a connected board at 115200 baud.
+`images/` contains the available board, sensor, wiring, and prototype
+reference images. No Arduino sketch or firmware source is currently present
+in this checkout; the Arduino path is documented as planned hardware work in
+the research report. The deterministic backend generator remains the
+reproducible conference-demo input.
 
-## Serial diagnostic setup
+## Hardware notes
 
-From the project root, install the optional serial dependency and run:
-
-```bash
-python3 -m pip install pyserial
-python3 edge/tools/serial_diagnostics.py --port /dev/cu.usbmodemXXXX
-```
-
-The serial tool does not publish MQTT events. Hardware firmware, pin choices,
-sensor calibration, power requirements, Wi-Fi behavior, and upload procedure
-must be validated on the physical board before being used as a production
-source. The deterministic backend generator remains the reproducible demo
-input.
+The planned wiring uses DHT22 for air temperature/relative humidity and
+BMP280 for a secondary temperature/pressure channel. The UNO R4 WiFi and UNO
+R4 Minima are reference boards; firmware, pin choices, calibration,
+power requirements, Wi-Fi behavior, and upload procedure must be validated on
+the physical board before use. No sensor program is allowed to be treated as
+a calibrated vaccine data logger.

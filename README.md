@@ -299,5 +299,6 @@ dashboard use.
 
 - [`docs/architecture-and-pipeline.md`](docs/architecture-and-pipeline.md) — component responsibilities and data flow.
 - [`docs/database-access.md`](docs/database-access.md) — database read/write ownership and SQL boundaries.
-- [`docs/terminal-runbook.md`](docs/terminal-runbook.md) — copy-paste process commands.
+- [`docs/MD Files for Running/terminal-runbook.md`](docs/MD%20Files%20for%20Running/terminal-runbook.md) — copy-paste process commands.
+- [`docs/research/project-resource-index.md`](docs/research/project-resource-index.md) — package map and Colab/Drive resource status.
 - [`edge/README.md`](edge/README.md) — hardware and sensor notes.
