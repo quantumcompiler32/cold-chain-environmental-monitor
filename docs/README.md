@@ -22,3 +22,6 @@ presentation handoff. They are not separate application implementations.
 - PowerPoint and Google Slides access notes are in `presentation/`.
 - Dataset notes are in `datasets/`; the canonical 61 MB CSV remains in
   `ai_worker/data/` so the trainer and event generator do not duplicate it.
+- Project lessons are in `lessons/`, with shared styling in `assets/`.
+- Engineering learning records are in `learning-records/`.
+- Repository source links are collected in `RESOURCES.md`.

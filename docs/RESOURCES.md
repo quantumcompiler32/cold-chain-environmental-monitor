@@ -7,6 +7,6 @@
 
 ## Repository sources
 
-- [Architecture and pipeline](docs/architecture-and-pipeline.md)
-- [Temperature event generator](backend/temperature_event_generator.py)
-- [Event contract and subscriber](backend/temperature_subscriber.py)
+- [Architecture and pipeline](architecture-and-pipeline.md)
+- [Temperature event generator](../backend/temperature_event_generator.py)
+- [Event contract and subscriber](../backend/temperature_subscriber.py)

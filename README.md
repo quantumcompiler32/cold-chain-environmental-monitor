@@ -8,10 +8,11 @@ event generator -> Mosquitto MQTT -> backend subscriber -> PostgreSQL
                                              -> read-only dashboard bridge -> frontend
 ```
 
-The verified baseline is deterministic monitoring and persistence. The
-`ai_worker/` package is optional and advisory; it does not write PostgreSQL
-rows or make vaccine-disposition decisions. The `edge/` folder contains
-hardware reference material and an optional serial diagnostic tool.
+The verified baseline is deterministic monitoring, persistence, and the
+browser dashboard. The `ai_worker/` package is optional and advisory; it does
+not write PostgreSQL rows or make vaccine-disposition decisions. The `edge/`
+folder contains hardware and sensor reference material; physical Arduino
+firmware and calibrated sensor collection remain planned work.
 
 ## Required software
 
@@ -20,8 +21,7 @@ hardware reference material and an optional serial diagnostic tool.
 - Mosquitto MQTT broker.
 - Node.js 18+ for frontend tests.
 - `make` for the command shortcuts.
-- Optional: Homebrew on macOS, PlatformIO for future Arduino firmware, and
-  `pyserial` for `edge/tools/serial_diagnostics.py`.
+- Optional: Homebrew on macOS and PlatformIO for future Arduino firmware.
 
 ## Repository layout
 
@@ -31,8 +31,61 @@ hardware reference material and an optional serial diagnostic tool.
 | `db/` | PostgreSQL schema, migrations, reset/verification scripts, SQL, and database tests |
 | `backend/` | Event generator, MQTT subscriber/database writer, dashboard bridge, E2E verifier, and backend tests |
 | `ai_worker/` | Optional model trainer, inference service, training CSV, model artifacts, and ML tests |
-| `edge/` | Arduino/sensor reference images, serial diagnostic tool, and hardware notes |
+| `edge/` | Arduino/sensor reference images and hardware notes |
 | `docs/` | Architecture, runbook, verification report, presentation, dataset, and research material |
+
+The package intentionally contains only this project's dashboard and related
+implementation files. The original sensor-dashboard archive and unrelated
+intern files are not part of the handoff.
+
+## Dashboard
+
+The dashboard is a browser-only frontend served from `frontend/`. The main
+entry points are:
+
+- `frontend/index.html` — landing page.
+- `frontend/pages/domain-vaccine.html` — primary vaccine-monitoring view.
+- `frontend/pages/domain-vaccine-raw.html` — raw event records.
+- `frontend/pages/domain-vaccine-inference.html` — advisory model output.
+- `frontend/pages/domain-cooling.html`, `domain-energy.html`, `domain-air.html`, and `domain-fire.html` — additional domain views.
+- `frontend/pages/audit-log.html` and `frontend/pages/settings.html` — audit and configuration views.
+
+The frontend reads through `backend/dashboard_bridge.py` on port `8787` and
+does not write directly to PostgreSQL or MQTT. Its static files are served on
+port `8766`. The bridge provides read-only API and server-sent-event streams
+for committed records. Frontend tests cover navigation, aggregation,
+filtering, CSV export, timestamps, bridge behavior, and inference rendering.
+
+## Complete project contents
+
+- `frontend/` contains the dashboard HTML, JavaScript, CSS, browser assets,
+  and frontend tests.
+- `db/` contains PostgreSQL bootstrap schema, migrations, guarded reset and
+  verification scripts, sample-data helpers, and database tests.
+- `backend/` contains the deterministic event generator, MQTT subscriber and
+  database writer, dashboard bridge, event contracts, domain rules, and
+  backend tests.
+- `ai_worker/` contains training and inference code, the canonical training
+  CSV, eight Colab notebooks, four saved model artifacts, and ML tests. The
+  downloaded notebooks are `Combined notebook.ipynb`, `ML questions Ultralow
+  Vaccine Distribution Data.ipynb`, `algorithms.ipynb`,
+  `byteSmart_Ultralow_ML_Questions.ipynb`, `Testing Inference.ipynb`,
+  `Training.ipynb`, `iot_data_analysis.ipynb`, and `Kaggle.ipynb`.
+- `edge/` contains the README and reference images for the Arduino UNO R4
+  WiFi, UNO R4 Minima, DHT22, BMP280, and AHT20. No completed Arduino sketch
+  is claimed as physical validation.
+- `docs/datasets/` contains the downloaded `14888121` dataset archive;
+  `ai_worker/data/Test1_TempCO2O2.csv` remains the canonical CSV consumed by
+  the trainer and generator.
+- `docs/research/` contains the ultralow-temperature research PDF, student
+  research document, ML questions document, final clinical protocol report,
+  resource index, and `research_urls.doc`.
+- `docs/presentation/` contains the PowerPoint deck and exported Google Slides
+  presentation.
+- `docs/lessons/`, `docs/learning-records/`, and `docs/assets/` contain the
+  project lessons, engineering notes, and lesson styling assets.
+- `docs/RESOURCES.md` contains the short list of repository and technical
+  source links.
 
 ## Configuration
 
@@ -191,7 +244,8 @@ make run-scenario \
   SCENARIO=mixed \
   COUNT=10 \
   INTERVAL_MS=100 \
-  SEED=274 \```
+  SEED=274
+```
 
 For exact cross-timezone reproduction, include an offset such as
 `START_TIME=2026-07-15T09:00:00-07:00`; otherwise each machine interprets the
